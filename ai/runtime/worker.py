@@ -30,7 +30,7 @@ PIPELINE_MAP: dict[int, str] = {
     # 3: Vahadane(),  
     4: "ai.pipelines.staingan:StainGANPipeline",  
     5: "ai.pipelines.stainnet:StainNetPipeline",
-    # 6: StainSWIN(), 
+    6: "ai.pipelines.stainswin:StainSWINPipeline",
 }
 
 class Worker:

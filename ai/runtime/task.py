@@ -11,6 +11,7 @@ class Metrics:
 class Task:
     src_img_path: Path
     target_img_path: Path | None
+    result_path: Path
     model_id: int 
 
 @dataclass

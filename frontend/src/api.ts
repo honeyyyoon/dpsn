@@ -29,6 +29,6 @@ export async function getJobResult(jobId: string): Promise<JobResultResponse> {
   return res.json();
 }
 
-export function getImageUrl(imageId: string): string {
-  return `${BASE}/images/${imageId}`;
+export function getImageUrl(imageId: string, thumbnail: boolean = false): string {
+  return `${BASE}/images/${imageId}${thumbnail ? '?thumbnail=true' : ''}`;
 }

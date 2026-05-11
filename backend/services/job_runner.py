@@ -6,6 +6,7 @@ from fastapi import BackgroundTasks
 from ai.runtime.task import Task
 from ai.runtime.worker import Worker
 from backend.services import image_store
+from backend.db import DATA_DIR
 
 jobs: dict = {}
 _worker = Worker()
@@ -20,19 +21,18 @@ def run_job(job_id: str, model_id: int, image_id: str):
         task = Task(
             src_img_path=Path(src_path),
             target_img_path=Path(tgt_path),
+            result_path=DATA_DIR / "results",
             model_id=model_id
         )
         task_result = _worker.run(task, emit_event=None)
 
-        # 결과 이미지를 image_store에 등록하고 result_image_id 발급 (thumbnail 우선)
-        result_image_id = str(uuid.uuid4())
-        serve_path = task_result.thumbnail_path if task_result.thumbnail_path else task_result.result_img_path
-        image_store.images[result_image_id] = str(serve_path)
+        result_image_id = image_store.enroll_image(task_result.result_img_path)
 
         jobs[job_id]["status"] = "done"
         jobs[job_id]["result_image_id"] = result_image_id
         jobs[job_id]["result"] = dataclasses.asdict(task_result.metrics)
     except Exception as e:
+        print(e)
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["result"] = str(e)
 

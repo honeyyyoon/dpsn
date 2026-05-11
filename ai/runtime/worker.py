@@ -40,6 +40,7 @@ class Worker:
         pipeline = self._create_pipeline(task.model_id)
         pipeline_result = pipeline.run(
             task.src_img_path, 
+            task.result_path,
             task.target_img_path,
             {
                 "ssim": SSIM(),
@@ -47,18 +48,14 @@ class Worker:
                 "fid": FID(),
             }
         )
-
-        result_img_path = self._get_result_img_path(pipeline_result)
-        thumbnail_path = Path(pipeline_result.thumbnail_path) if getattr(pipeline_result, "thumbnail_path", None) else None
-
         # Metrics are still placeholder-level in the current project.
         # TODO: ai/metrics/ 구현 후 실제 metrics 계산으로 교체
         metrics = Metrics(ssim=0.95, psnr=32.4, fid=60)
 
         return TaskResult(
-            result_img_path=result_img_path,
+            result_img_path=pipeline_result.output_path,
             metrics=metrics,
-            thumbnail_path=thumbnail_path,
+            thumbnail_path=pipeline_result.thumbnail_path,
         )
 
     def _create_pipeline(self, model_id: int) -> ModelPipeline:

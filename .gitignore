@@ -4,8 +4,10 @@ data/
 venv/
 data/uploads/*
 data/results/*
+data/thumbnails/*
 !data/uploads/.gitkeep
 !data/results/.gitkeep
+!data/thumbnails/.gitkeep
 .venv/
 __pycache__/
 *.py[cod]

@@ -30,7 +30,7 @@ class StainNetInferenceConfig:
 
     checkpoint_path: Path | None = None
     checkpoint_dir: Path = Path(__file__).resolve().parents[1] / "checkpoints" / "stainnet"
-    output_dir: Path = Path("/mnt/Disk1/dpsn_datasets/inf_result_stainnet")
+    # output_dir: Path = Path("/mnt/Disk1/dpsn_datasets/inf_result_stainnet")
 
     input_nc: int = 3
     output_nc: int = 3
@@ -40,7 +40,7 @@ class StainNetInferenceConfig:
 
     patch_size: int = 512
     stride: int = 512
-    read_level: int = 2
+    read_level: int = 0
     batch_size: int = 8
     tile_size: int = 512 # small rectangular chunks called that a WSI is divided and saved in
     device: str = "auto"
@@ -75,6 +75,7 @@ class StainNetPipeline(ModelPipeline):
     def run(
         self,
         src_img_path: Path,
+        result_path: Path,
         target_img_path: Path | None = None,
         metrics: dict[str, Metric] | None = None
     ) -> PipelineResult:
@@ -92,7 +93,7 @@ class StainNetPipeline(ModelPipeline):
             src_wsi_handle.level_downsamples[self.config.read_level]
         )
         refs = self.grid_sampler.sample(src_wsi_handle)
-        output_path = self._build_output_path(src_img_path)
+        # output_path = self._build_output_path(src_img_path)
         total_refs = len(refs)
         total_batches = (total_refs + self.config.batch_size - 1) // self.config.batch_size
 
@@ -100,7 +101,7 @@ class StainNetPipeline(ModelPipeline):
         self._log_run_summary(
             src_img_path=src_img_path,
             checkpoint_path=checkpoint_path,
-            output_path=output_path,
+            output_path=Path("result"),
             wsi_handle=src_wsi_handle,
             total_refs=total_refs,
             total_batches=total_batches,
@@ -113,7 +114,7 @@ class StainNetPipeline(ModelPipeline):
         )
 
         writer = ZarrWSIWriter(
-            output_path=output_path,
+            output_path=result_path,
             width=read_w,
             height=read_h,
             level_downsample=level_downsample,
@@ -167,6 +168,7 @@ class StainNetPipeline(ModelPipeline):
 
         self._log("Finalizing Zarr writer and writing thumbnail...")
         final_output_path = writer.finalize()
+        writer.close()
         total_elapsed = time.time() - run_start
         normalized_scores = {
             key: value / max(total_batches, 1) for key, value in scores.items()
@@ -180,9 +182,9 @@ class StainNetPipeline(ModelPipeline):
         for key, value in normalized_scores.items():
             self._log(f"{key.upper()}: {value:.6f}")
         return PipelineResult(
-            output_path=str(final_output_path),
+            output_path=final_output_path,
             scores=normalized_scores,
-            thumbnail_path=str(writer.thumbnail_path),
+            thumbnail_path=None,
         )
 
     def _validate_config(self) -> None:
@@ -338,10 +340,10 @@ class StainNetPipeline(ModelPipeline):
             return torch.device("mps")
         return torch.device("cpu")
 
-    def _build_output_path(self, src_img_path: Path) -> Path:
-        self.config.output_dir.mkdir(parents=True, exist_ok=True)
-        stem = Path(src_img_path).stem
-        return self.config.output_dir / f"{stem}_stainnet.zarr"
+    # def _build_output_path(self, src_img_path: Path) -> Path:
+    #     self.config.output_dir.mkdir(parents=True, exist_ok=True)
+    #     stem = Path(src_img_path).stem
+    #     return self.config.output_dir / f"{stem}_stainnet.zarr"
 
     def _log_run_summary(
         self,

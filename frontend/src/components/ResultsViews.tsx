@@ -257,7 +257,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
             <div style={inner}>
               <WsiView
                 seed={seed}
-                src={srcImageId ? getImageUrl(srcImageId) : undefined}
+                src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
                 mode="dim"
                 label="원본"
                 chip="원본"
@@ -276,7 +276,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
             <div style={inner}>
               <WsiView
                 seed={seed}
-                src={result.result_image_id ? getImageUrl(result.result_image_id) : undefined}
+                src={result.result_image_id ? getImageUrl(result.result_image_id, true) : undefined}
                 mode="norm"
                 tint={model.tint}
                 intensity={0.8}
@@ -381,7 +381,7 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
         <div className="card fade-up" style={{ padding: 12 }}>
           <WsiView
             seed={seed}
-            src={srcImageId ? getImageUrl(srcImageId) : undefined}
+            src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
             mode="dim"
             chip="원본"
             style={{ aspectRatio: "1 / 1" }}
@@ -393,7 +393,7 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
             <div key={m.id} className="card fade-up" style={{ padding: 12 }}>
               <WsiView
                 seed={seed}
-                src={r?.result_image_id ? getImageUrl(r.result_image_id) : undefined}
+                src={r?.result_image_id ? getImageUrl(r.result_image_id, true) : undefined}
                 mode="norm"
                 tint={m.tint}
                 intensity={0.8}

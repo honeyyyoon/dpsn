@@ -3,6 +3,6 @@ from pathlib import Path
 
 @dataclass
 class PipelineResult:
-    output_path: str | Path
+    output_path: Path
     scores: dict = field(default_factory=dict)
-    thumbnail_path: str | Path | None = None
+    thumbnail_path: Path | None = None

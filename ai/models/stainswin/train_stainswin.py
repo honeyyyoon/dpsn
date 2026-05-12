@@ -53,19 +53,19 @@ class StainSWINTrainingConfig:
 
     input_nc: int = 3
     output_nc: int = 3
-    embed_dim: int = 96
+    embed_dim: int = 30
     num_heads: int = 6
-    num_res_blocks: int = 6
-    stbs_per_block: int = 2
+    num_res_blocks: int = 4
+    stbs_per_block: int = 6
     window_size: int = 8
     mlp_ratio: float = 4.0
     conv_kernel_size: int = 3
     reconstruction_channels: int | None = None
     use_image_residual: bool = True
 
-    batch_size: int = 8
+    batch_size: int = 32
     num_workers: int = 0
-    lr: float = 1e-4
+    lr: float = 1e-3
     weight_decay: float = 1e-4
     epochs: int = 40
     device: str = "auto"
@@ -74,6 +74,18 @@ class StainSWINTrainingConfig:
     source_prefix: str = "A"
     target_prefix: str = "H"
     gpu_ids: tuple[int, ...] = (1, 2, 3)
+
+
+class CharbonnierLoss(nn.Module):
+    def __init__(self, epsilon: float = 1e-3) -> None:
+        super().__init__()
+        if epsilon <= 0:
+            raise ValueError(f"epsilon must be > 0, got {epsilon}")
+        self.epsilon = float(epsilon)
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        diff = prediction - target
+        return torch.mean(torch.sqrt(diff * diff + self.epsilon * self.epsilon))
 
 
 def create_model(config: StainSWINTrainingConfig) -> StainSWIN:
@@ -215,13 +227,16 @@ def save_checkpoint(
     )
 
 
-def train(config: StainSWINTrainingConfig) -> Path:
+def _train_with_batch_size(
+    config: StainSWINTrainingConfig,
+    batch_size: int,
+) -> Path:
     device = select_device(config.device, config.gpu_ids)
     train_loader = create_dataloader(
         source_dir=config.train_source_dir,
         target_dir=config.train_target_dir,
         image_size=config.image_size,
-        batch_size=config.batch_size,
+        batch_size=batch_size,
         num_workers=config.num_workers,
         shuffle=True,
         recursive=config.recursive,
@@ -235,7 +250,7 @@ def train(config: StainSWINTrainingConfig) -> Path:
             source_dir=config.val_source_dir,
             target_dir=config.val_target_dir,
             image_size=config.image_size,
-            batch_size=config.batch_size,
+            batch_size=batch_size,
             num_workers=config.num_workers,
             shuffle=False,
             recursive=config.recursive,
@@ -264,7 +279,7 @@ def train(config: StainSWINTrainingConfig) -> Path:
         weight_decay=config.weight_decay,
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs)
-    loss_fn = nn.L1Loss()
+    loss_fn = CharbonnierLoss(epsilon=1e-3)
 
     latest_checkpoint_path = (
         config.checkpoints_dir / f"{config.experiment_name}_latest.pth"
@@ -319,6 +334,49 @@ def train(config: StainSWINTrainingConfig) -> Path:
         )
 
     return latest_checkpoint_path
+
+
+def _is_cuda_oom(error: RuntimeError) -> bool:
+    message = str(error).lower()
+    return "out of memory" in message or "cuda error: out of memory" in message
+
+
+def _candidate_batch_sizes(requested_batch_size: int) -> list[int]:
+    candidates = [32, 16, 8, 4]
+    return [batch_size for batch_size in candidates if batch_size <= requested_batch_size]
+
+
+def train(config: StainSWINTrainingConfig) -> Path:
+    candidate_batch_sizes = _candidate_batch_sizes(config.batch_size)
+    if not candidate_batch_sizes:
+        raise ValueError(
+            f"batch_size must be at least 4 for fallback logic, got {config.batch_size}"
+        )
+
+    last_error: RuntimeError | None = None
+    for batch_size in candidate_batch_sizes:
+        try:
+            if batch_size != config.batch_size:
+                print(
+                    f"Retrying StainSWIN training with reduced batch_size={batch_size} "
+                    f"(requested {config.batch_size})."
+                )
+            return _train_with_batch_size(config=config, batch_size=batch_size)
+        except RuntimeError as error:
+            if not torch.cuda.is_available() or not _is_cuda_oom(error):
+                raise
+            last_error = error
+            print(
+                f"CUDA OOM encountered with batch_size={batch_size}. "
+                "Trying a smaller batch size..."
+            )
+            torch.cuda.empty_cache()
+
+    assert last_error is not None
+    raise RuntimeError(
+        "StainSWIN training ran out of GPU memory even after trying batch sizes "
+        "32, 16, 8, and 4."
+    ) from last_error
 
 
 def select_device(device: str, gpu_ids: tuple[int, ...]) -> torch.device:
@@ -385,18 +443,18 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--experiment-name", type=str, default="stainswin")
     parser.add_argument("--image-size", type=int, default=256)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--input-nc", type=int, default=3)
     parser.add_argument("--output-nc", type=int, default=3)
-    parser.add_argument("--embed-dim", type=int, default=96)
+    parser.add_argument("--embed-dim", type=int, default=30)
     parser.add_argument("--num-heads", type=int, default=6)
-    parser.add_argument("--num-res-blocks", type=int, default=6)
-    parser.add_argument("--stbs-per-block", type=int, default=2)
+    parser.add_argument("--num-res-blocks", type=int, default=4)
+    parser.add_argument("--stbs-per-block", type=int, default=6)
     parser.add_argument("--window-size", type=int, default=8)
     parser.add_argument("--mlp-ratio", type=float, default=4.0)
     parser.add_argument("--conv-kernel-size", type=int, default=3)

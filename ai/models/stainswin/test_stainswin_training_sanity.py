@@ -26,6 +26,7 @@ from torch.optim import AdamW
 
 from ai.models.stainnet.paired_aligned_dataset import PairedAlignedImageDataset
 from ai.models.stainswin.train_stainswin import (
+    CharbonnierLoss,
     StainSWINTrainingConfig,
     create_model,
     select_device,
@@ -88,8 +89,8 @@ def run_sanity_check(
             train_source_dir=source_dir,
             train_target_dir=target_dir,
             image_size=image_size,
-            embed_dim=48,
-            num_heads=4,
+            embed_dim=30,
+            num_heads=6,
             num_res_blocks=2,
             stbs_per_block=2,
             window_size=8,
@@ -101,8 +102,8 @@ def run_sanity_check(
     batch_source = torch.from_numpy(np.stack([source, source], axis=0)).to(device)
     batch_target = torch.from_numpy(np.stack([target, target], axis=0)).to(device)
 
-    optimizer = AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
-    loss_fn = nn.L1Loss()
+    optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    loss_fn = CharbonnierLoss(epsilon=1e-3)
 
     optimizer.zero_grad()
     output = model(batch_source)

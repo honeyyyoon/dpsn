@@ -19,7 +19,7 @@ class MacenkoNormalizer:
         self,
         alpha: float = 1.0,
         beta: float = 0.15,
-        Io: int = 240,
+        Io: int = 255,
         eps: float = 1e-8,
     ):
         self.alpha = alpha
@@ -30,19 +30,19 @@ class MacenkoNormalizer:
         self.target_stain_matrix: np.ndarray | None = None
         self.target_max_conc: np.ndarray | None = None
 
-    def fit(self, target_rgb: np.ndarray) -> None:
+    def fit(self, source_rgb: np.ndarray, target_rgb: np.ndarray) -> None:
         stain_matrix = self._estimate_stain_matrix(target_rgb)
         concentrations = self._estimate_concentrations(target_rgb, stain_matrix)
 
         self.target_stain_matrix = stain_matrix
         self.target_max_conc = np.percentile(concentrations, 99, axis=1)
+        self.source_stain_matrix = self._estimate_stain_matrix(source_rgb)
 
     def normalize(self, source_rgb: np.ndarray) -> np.ndarray:
         if self.target_stain_matrix is None or self.target_max_conc is None:
             raise RuntimeError("Call fit(target_rgb) before normalize(source_rgb).")
 
-        source_stain_matrix = self._estimate_stain_matrix(source_rgb)
-        source_conc = self._estimate_concentrations(source_rgb, source_stain_matrix)
+        source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
 
         source_max_conc = np.percentile(source_conc, 99, axis=1)
         scale = self.target_max_conc / (source_max_conc + self.eps)
@@ -129,12 +129,14 @@ class Macenko(ModelPipeline):
         target_wsi_handle = open_wsi_handle(target_img_path)
         macenko = MacenkoNormalizer()
 
-        patch_sampler = PatchSampler(patch_size=64)
-        target_refs = patch_sampler.sample(target_wsi_handle, max_patches=16, save_debug=False)
+        patch_sampler = PatchSampler(patch_size=64, strict_mpp_check=False)
+        source_refs = patch_sampler.sample(src_wsi_handle,mode="training", max_patches=16, save_debug=False)
+        target_refs = patch_sampler.sample(target_wsi_handle,mode="training", max_patches=16, save_debug=False)
 
+        source_patches = [load_patch(ref).img.transpose(1, 2, 0) for ref in source_refs]
         target_patches = [load_patch(ref).img.transpose(1, 2, 0) for ref in target_refs]
-        for patch in target_patches:
-            macenko.fit(patch)
+        for idx in range(len(source_patches)):
+            macenko.fit(source_patches[idx], target_patches[idx])
 
         grid_sampler = GridSampler(patch_size=64, read_level=0)
         src_refs = grid_sampler.sample(src_wsi_handle)
@@ -166,8 +168,8 @@ class Macenko(ModelPipeline):
             new_patches = [macenko.normalize(patch).transpose(2, 0, 1) for patch in patches]
             timer['transform'] += time.time() - t0
 
-            patches = np.concatenate(patches, axis=0)
-            new_patches = np.concatenate(new_patches, axis=0)
+            patches = np.stack(patches, axis=0).transpose(0, 3, 1, 2)
+            new_patches = np.stack(new_patches, axis=0)
 
             t0 = time.time()
             for key, metric in metrics.items():

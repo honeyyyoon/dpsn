@@ -19,14 +19,18 @@ class TiffFileLoader(Loader):
             page = tif.pages[0]
 
             if len(page.shape) == 2:
-                dim = (page.shape[0], page.shape[1])
+                h, w = page.shape
+            elif len(page.shape) == 3:
+                h, w = page.shape[:2]
             else:
-                raise ValueError()
+                raise ValueError(f"Unsupported TIFF shape: {page.shape}")
+
+            dim = (w, h)
 
             return WSIHandle(
                 image_path=img_path,
                 dim=dim,
-                mpp= (-1, -1),
+                mpp=(-1, -1),
                 level_dimensions=(dim,),
                 level_downsamples=(1,)
             )

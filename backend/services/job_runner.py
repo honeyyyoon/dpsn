@@ -1,6 +1,8 @@
 import uuid
 import dataclasses
 from pathlib import Path
+import traceback
+
 from fastapi import BackgroundTasks
 
 from ai.runtime.task import Task
@@ -17,7 +19,7 @@ def run_job(job_id: str, model_id: int, image_id: str):
 
     try:
         src_path = image_store.get_image_path(image_id)
-        tgt_path = DATA_DIR / "TARGET.tif"
+        tgt_path = DATA_DIR / "H06_00.tiff"
         task = Task(
             src_img_path=Path(src_path),
             target_img_path=Path(tgt_path),
@@ -33,6 +35,7 @@ def run_job(job_id: str, model_id: int, image_id: str):
         jobs[job_id]["result"] = dataclasses.asdict(task_result.metrics)
     except Exception as e:
         print("Error:", e)
+        traceback.print_exc()
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["result"] = str(e)
 

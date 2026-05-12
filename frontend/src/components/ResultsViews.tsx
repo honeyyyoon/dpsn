@@ -4,7 +4,7 @@ import { METRIC_DEFS } from "../data";
 import type { MetricDef, ModelUi, JobResult } from "../types";
 import Icon from "./Icon";
 import { WsiView } from "./WsiImage";
-// import { getImageUrl } from '../api';
+import { getImageUrl } from '../api';
 
 interface MetricCardProps {
   def: MetricDef;
@@ -72,7 +72,7 @@ export function EmptyState({ hasFile, selectedCount }: EmptyStateProps) {
   const reasons = [];
   if (!hasFile) reasons.push({ icon: "upload", label: "WSI 이미지 업로드" });
   if (selectedCount === 0)
-    reasons.push({ icon: "layers", label: "모델 1개 이상 선택" });
+    reasons.push({ icon: "layers", label: "정규화 방법 1개 이상 선택" });
   return (
     <div
       style={{
@@ -159,9 +159,10 @@ export function EmptyState({ hasFile, selectedCount }: EmptyStateProps) {
 interface SingleResultProps {
   model: ModelUi;
   result: JobResult;
+  srcImageId?: string;
 }
 
-export function SingleResult({ model, result }: SingleResultProps) {
+export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
   const [showGrid, setShowGrid] = useState(false);
   const [zoom, setZoom] = useState(1);
   const seed = 7;
@@ -256,9 +257,10 @@ export function SingleResult({ model, result }: SingleResultProps) {
             <div style={inner}>
               <WsiView
                 seed={seed}
+                src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
                 mode="dim"
                 label="원본"
-                chip="BEFORE"
+                chip="원본"
                 showGrid={showGrid}
               />
             </div>
@@ -274,12 +276,13 @@ export function SingleResult({ model, result }: SingleResultProps) {
             <div style={inner}>
               <WsiView
                 seed={seed}
+                src={result.result_image_id ? getImageUrl(result.result_image_id, true) : undefined}
                 mode="norm"
                 tint={model.tint}
                 intensity={0.8}
                 label="정규화 결과"
                 sublabel={model.name}
-                chip="AFTER"
+                chip={model.name}
                 chipColor={model.tint}
                 showGrid={showGrid}
               />
@@ -310,9 +313,10 @@ export function SingleResult({ model, result }: SingleResultProps) {
 interface MultiDashboardProps {
   models: ModelUi[];
   results: Record<number, JobResult>;
+  srcImageId?: string;
 }
 
-export function MultiDashboard({ models, results }: MultiDashboardProps) {
+export function MultiDashboard({ models, results, srcImageId }: MultiDashboardProps) {
   const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
   const seed = 7;
 
@@ -363,7 +367,7 @@ export function MultiDashboard({ models, results }: MultiDashboardProps) {
           >
             결과 비교 대시보드
           </div>
-          <span className="chip accent dot">모델 {models.length}개</span>
+          <span className="chip accent dot">방법 {models.length}개</span>
         </div>
       </div>
 
@@ -374,12 +378,22 @@ export function MultiDashboard({ models, results }: MultiDashboardProps) {
           gap: 14,
         }}
       >
+        <div className="card fade-up" style={{ padding: 12 }}>
+          <WsiView
+            seed={seed}
+            src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
+            mode="dim"
+            chip="원본"
+            style={{ aspectRatio: "1 / 1" }}
+          />
+        </div>
         {sorted.map((m) => {
           const r = results[m.id];
           return (
             <div key={m.id} className="card fade-up" style={{ padding: 12 }}>
               <WsiView
                 seed={seed}
+                src={r?.result_image_id ? getImageUrl(r.result_image_id, true) : undefined}
                 mode="norm"
                 tint={m.tint}
                 intensity={0.8}
@@ -456,7 +470,7 @@ export function MultiDashboard({ models, results }: MultiDashboardProps) {
             justifyContent: "space-between",
           }}
         >
-          <div style={{ fontSize: 13, fontWeight: 600 }}>성적표</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>비교표</div>
           <div
             style={{
               display: "flex",
@@ -538,7 +552,7 @@ export function MultiDashboard({ models, results }: MultiDashboardProps) {
                   </td>
                   <td style={tdStyle}>
                     <span className="chip">
-                      {m.category === "Classical" ? "통계 기반" : "딥러닝"}
+                      {m.category === "Classical" ? "알고리즘 기반" : "딥러닝 모델"}
                     </span>
                   </td>
                   {METRIC_DEFS.map((def) => {

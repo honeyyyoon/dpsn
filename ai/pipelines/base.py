@@ -14,7 +14,8 @@ class ModelPipeline(ABC):
     @abstractmethod
     def run(
         self, 
-        src_img_path: Path, 
+        src_img_path: Path,
+        result_path: Path,
         target_img_path: Path | None,
         metrics: dict[str, Metric],
     ) -> PipelineResult: ...

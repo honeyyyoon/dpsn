@@ -36,7 +36,8 @@ class Reinhard(ModelPipeline):
 
     def run(
         self,
-        src_img_path: Path, 
+        src_img_path: Path,
+        result_path: Path, 
         target_img_path: Path | None,
         metrics: dict[str, Metric]
     ) -> PipelineResult:
@@ -114,10 +115,8 @@ class Reinhard(ModelPipeline):
         src_refs = grid_sampler.sample(src_wsi_handle)
         self.logger.info(f"Sampled: {len(src_refs)}")
 
-        temp_file = "temp/out_img"
-        self.logger.info(f"Create temp file: {temp_file}")
         writer = ZarrWSIWriter(
-            temp_file, 
+            result_path,
             src_wsi_handle.level_dimensions[0][0], 
             src_wsi_handle.level_dimensions[0][1],
             level_downsample=src_wsi_handle.level_downsamples[level],
@@ -159,14 +158,14 @@ class Reinhard(ModelPipeline):
         self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
         
         output_path = writer.finalize()
+        writer.close()
         # self.logger.info(f"Save Normalized Image: {image.width} x {image.height}")
-
-        # shutil.rmtree(temp_file)
-        print(output_path)
+        
 
         return PipelineResult(
             output_path=output_path,
-            scores=scores
+            scores=scores,
+            thumbnail_path=output_path,
         )
         
     

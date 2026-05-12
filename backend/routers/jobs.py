@@ -20,7 +20,7 @@ async def create_job(
     except ValueError:
         raise HTTPException(status_code=400, detail="model_ids must be a comma-separated list of integers")
     image_id = await image_store.save_image(image)
-    return [JobResponse(job_id=job_runner.create_job(mid, image_id, background_tasks)) for mid in model_id_list]
+    return [JobResponse(job_id=job_runner.create_job(mid, image_id, background_tasks), image_id=image_id) for mid in model_id_list]
 
 # job_id로 job을 조회하고 현재 status를 반환
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

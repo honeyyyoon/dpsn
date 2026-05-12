@@ -92,7 +92,7 @@ function Topbar({
               {running
                 ? "실행 중…"
                 : selectedCount > 1
-                  ? `${selectedCount}개 모델 실행`
+                  ? `정규화 ${selectedCount}개 실행`
                   : "실행"}
             </button>
           </>
@@ -251,7 +251,7 @@ function ConfigColumn({
                     letterSpacing: "0.04em",
                   }}
                 >
-                  2. 모델 선택
+                  2. 정규화 방법 선택
                 </div>
                 <span
                   className="chip accent"
@@ -306,11 +306,11 @@ function ConfigColumn({
             )}
             {selected.size > 0 ? (
               <StatusLine ok>
-                모델 {selected.size}개:{" "}
+                방법 {selected.size}개:{" "}
                 {selectedModels.map((m) => m.name).join(", ")}
               </StatusLine>
             ) : (
-              <StatusLine>선택된 모델 없음</StatusLine>
+              <StatusLine>선택된 방법 없음</StatusLine>
             )}
           </div>
           <button
@@ -323,7 +323,7 @@ function ConfigColumn({
             {running
               ? "실행 중…"
               : selected.size > 1
-                ? `${selected.size}개 모델 실행`
+                ? `정규화 ${selected.size}개 실행`
                 : "정규화 실행"}
           </button>
         </div>
@@ -451,6 +451,7 @@ export default function App() {
         status: "running",
         when: "now",
         progress: 0,
+        src_image_id: responses[0].image_id,
       };
       setJobs((prev) => [newJob, ...prev]);
 
@@ -569,11 +570,13 @@ export default function App() {
                 <SingleResult
                   model={activeModels[0]}
                   result={activeJob.results[activeModels[0].id]}
+                  srcImageId={activeJob.src_image_id}
                 />
               ) : (
                 <MultiDashboard
                   models={activeModels}
                   results={activeJob.results}
+                  srcImageId={activeJob.src_image_id}
                 />
               )}
             </div>

@@ -119,7 +119,7 @@ export function ModelPicker({ selected, onToggle }: ModelPickerProps) {
   return (
     <div className="model-categories">
       <div>
-        {categoryHeader('통계 기반 방법', 'CPU')}
+        {categoryHeader('알고리즘 기반 방법', 'CPU')}
         <div style={{ display: 'grid', gap: 8 }}>
           {classical.map(m => <ModelCard key={m.id} model={m} selected={selected.has(m.id)} onToggle={() => onToggle(m.id)}/>)}
         </div>

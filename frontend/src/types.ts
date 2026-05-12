@@ -8,6 +8,7 @@ export interface Model {
 
 export interface JobResponse {
   job_id: string;
+  image_id: string;
 }
 
 export interface JobStatusResponse {
@@ -50,5 +51,6 @@ export interface UiJob {
   status: JobStatus;
   when: string;
   progress?: number;
+  src_image_id?: string;
   results?: Record<number, JobResult>;
 }

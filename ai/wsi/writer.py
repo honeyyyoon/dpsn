@@ -1,4 +1,8 @@
 from __future__ import annotations
+import numpy as np
+from pathlib import Path
+from PIL import Image
+import uuid
 
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -46,35 +50,39 @@ class ZarrWSIWriter(PatchWriter):
             raise ValueError(
                 f"level_downsample must be > 0, got {level_downsample}"
             )
+        self.temp_id = str(uuid.uuid4())
 
-        self.output_path = Path(output_path)
+        self.output_path = Path(output_path) / self.temp_id
         self.width = int(width)
         self.height = int(height)
         self.channels = int(channels)
         self.tile_size = int(tile_size)
         self.level_downsample = float(level_downsample)
-        self.thumbnail_path = self.output_path.parent / "out_image.png"
+        # self.thumbnail_path = self.output_path.parent / "out_image.png"
+        self.thumbnail_path = Path(output_path) / f"{self.temp_id}.png"
         self.thumbnail_max_size = int(2048)
 
         if self.output_path.exists() and overwrite:
             shutil.rmtree(self.output_path)
 
-        self.root = zarr.open_group(str(self.output_path), mode="w")
-        self.image = self._create_zarr_array(
-            root=self.root,
-            name="image",
-            shape=(self.height, self.width, self.channels),
-        )
-        self.root.attrs.update(
-            {
-                "writer_type": "zarr",
-                "width": self.width,
-                "height": self.height,
-                "channels": self.channels,
-                "tile_size": self.tile_size,
-                "level_downsample": self.level_downsample,
-            }
-        )
+        # self.root = zarr.open_group(str(self.output_path), mode="w")
+        # self.image = self._create_zarr_array(
+        #     root=self.root,
+        #     name="image",
+        #     shape=(self.height, self.width, self.channels),
+        # )
+        # self.root.attrs.update(
+        #     {
+        #         "writer_type": "zarr",
+        #         "width": self.width,
+        #         "height": self.height,
+        #         "channels": self.channels,
+        #         "tile_size": self.tile_size,
+        #         "level_downsample": self.level_downsample,
+        #     }
+        # )
+        self.root = zarr.open_group(str(self.output_path / "temp"), mode="w")
+        self.image = self._create_zarr_image(self.root)
 
     def write_patch(self, ref: PatchRef, img: np.ndarray) -> None:
         x1 = int(round(ref.x / self.level_downsample))
@@ -95,17 +103,22 @@ class ZarrWSIWriter(PatchWriter):
 
     def finalize(self) -> Path:
         self._write_thumbnail()
-        return self.output_path
-
+        return self.thumbnail_path
+    
+    def close(self):
+        shutil.rmtree(self.output_path)
+    
     def _write_thumbnail(self) -> Path:
+        if self.thumbnail_path is None:
+            raise ValueError("thumbnail_path is not set.")
+
         self.thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
 
         max_size = self.thumbnail_max_size
-        stride = max(
-            1,
-            int(np.ceil(max(self.height / max_size, self.width / max_size))),
-        )
+        stride = max(1, int(np.ceil(max(self.height / max_size, self.width / max_size))))
+
         thumb = self.image[::stride, ::stride, :]
+
         thumb_arr = np.asarray(thumb, dtype=np.uint8)
 
         img = Image.fromarray(thumb_arr, mode="RGB")

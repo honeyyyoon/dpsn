@@ -8,9 +8,9 @@ router = APIRouter()
 
 # image_id로 저장된 이미지 파일을 반환
 @router.get("/images/{image_id}")
-async def get_image(image_id: str):
+async def get_image(image_id: str, thumbnail: bool = False):
     try:
-        path = image_store.get_image_path(image_id)
+        path = image_store.get_image_path(image_id, thumbnail)
     except KeyError:
         raise HTTPException(status_code=404, detail="Image not found")
 

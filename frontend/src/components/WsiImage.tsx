@@ -74,6 +74,7 @@ interface WsiViewProps {
   label?: string;
   sublabel?: string;
   seed: number;
+  src?: string;
   mode?: TissueSvgProps['mode'];
   tint?: string;
   intensity?: number;
@@ -84,7 +85,7 @@ interface WsiViewProps {
   children?: ReactNode;
 }
 
-export function WsiView({ label, sublabel, seed, mode = 'h-e', tint, intensity = 1,
+export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intensity = 1,
                           showGrid = false, chip, chipColor, style, children }: WsiViewProps) {
   return (
     <div style={{
@@ -96,7 +97,10 @@ export function WsiView({ label, sublabel, seed, mode = 'h-e', tint, intensity =
       minHeight: 0,
       ...style,
     }}>
-      <TissueSvg seed={seed} mode={mode} tint={tint} intensity={intensity}/>
+      {src
+        ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}/>
+        : <TissueSvg seed={seed} mode={mode} tint={tint} intensity={intensity}/>
+      }
       {showGrid && (
         <svg viewBox="0 0 400 400" preserveAspectRatio="none"
              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>

@@ -8,6 +8,7 @@ class ModelResponse(BaseModel):
 
 class JobResponse(BaseModel):
     job_id: str
+    image_id: str
     
 class JobStatusResponse(BaseModel):
     job_id: str

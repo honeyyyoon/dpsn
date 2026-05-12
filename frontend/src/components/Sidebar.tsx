@@ -42,7 +42,7 @@ function JobItem({ job, active, onClick }: JobItemProps) {
   const modelCount = job.modelIds?.length || 0;
   const modelSummary = modelCount === 1
     ? (MODELS.find(m => m.id === job.modelIds[0])?.name || '')
-    : `모델 ${modelCount}개`;
+    : `방법 ${modelCount}개`;
 
   return (
     <div

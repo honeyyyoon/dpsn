@@ -2,6 +2,14 @@
 Run example:
 ./.venv/bin/python -m ai.models.stainswin.test_stainswin_training_sanity
 
+or
+
+./.venv/bin/python -m ai.models.stainswin.test_stainswin_training_sanity \
+  --source-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_aperio \
+  --target-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_hamamatsu \
+  --image-size 128 \
+  --device auto
+
 """
 
 from __future__ import annotations

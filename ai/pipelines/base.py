@@ -18,4 +18,5 @@ class ModelPipeline(ABC):
         result_path: Path,
         target_img_path: Path | None,
         metrics: dict[str, Metric],
+        emit_event=None
     ) -> PipelineResult: ...

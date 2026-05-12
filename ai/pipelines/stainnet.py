@@ -77,7 +77,8 @@ class StainNetPipeline(ModelPipeline):
         src_img_path: Path,
         result_path: Path,
         target_img_path: Path | None = None,
-        metrics: dict[str, Metric] | None = None
+        metrics: dict[str, Metric] | None = None,
+        emit_event=None
     ) -> PipelineResult:
         del target_img_path
 

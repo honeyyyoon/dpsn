@@ -464,7 +464,10 @@ export default function App() {
         for (let i = 0; i < jobIds.length; i++) {
           const jobId = jobIds[i];
           const modelId = modelIds[i];
-          if (finishedSet.has(modelId)) continue;
+          if (finishedSet.has(modelId)) {
+            progress += 100;
+            continue;
+          }
           try {
             const status = await getJobStatus(jobId);
             if (status.status === "done") {

@@ -49,9 +49,11 @@ class Worker:
             },
             emit_event=emit_event
         )
-        # Metrics are still placeholder-level in the current project.
-        # TODO: ai/metrics/ 구현 후 실제 metrics 계산으로 교체
-        metrics = Metrics(ssim=0.95, psnr=32.4, fid=60)
+        metrics = Metrics(
+            ssim=pipeline_result.scores.get("ssim", 0.0), 
+            psnr=pipeline_result.scores.get("psnr", 0.0), 
+            fid=pipeline_result.scores.get("fid", 0.0)
+        )
 
         return TaskResult(
             result_img_path=pipeline_result.output_path,

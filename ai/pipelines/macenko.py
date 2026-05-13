@@ -19,7 +19,7 @@ class MacenkoNormalizer:
         self,
         alpha: float = 1.0,
         beta: float = 0.15,
-        Io: int = 255,
+        Io: int = 240,
         eps: float = 1e-8,
     ):
         self.alpha = alpha
@@ -27,29 +27,39 @@ class MacenkoNormalizer:
         self.Io = Io
         self.eps = eps
 
+        self.source_stain_matrix: np.ndarray | None = None
+        self.source_max_conc: np.ndarray | None = None
         self.target_stain_matrix: np.ndarray | None = None
         self.target_max_conc: np.ndarray | None = None
 
-    def fit(self, source_rgb: np.ndarray, target_rgb: np.ndarray) -> None:
-        stain_matrix = self._estimate_stain_matrix(target_rgb)
-        concentrations = self._estimate_concentrations(target_rgb, stain_matrix)
+    def fit(self, source_patches: list[np.ndarray], target_patches: list[np.ndarray]) -> None:
+        source_rgb = self._concat_patches(source_patches)
+        target_rgb = self._concat_patches(target_patches)
 
-        self.target_stain_matrix = stain_matrix
-        self.target_max_conc = np.percentile(concentrations, 99, axis=1)
         self.source_stain_matrix = self._estimate_stain_matrix(source_rgb)
+        source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
+        self.source_max_conc = np.percentile(source_conc, 95, axis=1)
+
+        self.target_stain_matrix = self._estimate_stain_matrix(target_rgb)
+        target_conc = self._estimate_concentrations(target_rgb, self.target_stain_matrix)
+        self.target_max_conc = np.percentile(target_conc, 95, axis=1)
+
 
     def normalize(self, source_rgb: np.ndarray) -> np.ndarray:
-        if self.target_stain_matrix is None or self.target_max_conc is None:
-            raise RuntimeError("Call fit(target_rgb) before normalize(source_rgb).")
+        if (
+            self.source_stain_matrix is None
+            or self.source_max_conc is None
+            or self.target_stain_matrix is None
+            or self.target_max_conc is None
+        ):
+            raise RuntimeError("Call fit(source_patches, target_patches) before normalize().")
+
+        h, w, _ = source_rgb.shape
 
         source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
 
-        source_max_conc = np.percentile(source_conc, 99, axis=1)
-        scale = self.target_max_conc / (source_max_conc + self.eps)
-
+        scale = self.target_max_conc / (self.source_max_conc + self.eps)
         normalized_conc = source_conc * scale[:, None]
-
-        h, w, _ = source_rgb.shape
 
         normalized_od = self.target_stain_matrix @ normalized_conc
         normalized_rgb = self.Io * np.exp(-normalized_od)
@@ -57,15 +67,29 @@ class MacenkoNormalizer:
 
         return np.clip(normalized_rgb, 0, 255).astype(np.uint8)
 
+    def _concat_patches(self, patches: list[np.ndarray]) -> np.ndarray:
+        valid_patches = []
+
+        for patch in patches:
+            if patch.ndim != 3 or patch.shape[2] != 3:
+                raise ValueError(f"Expected RGB patch with shape [H, W, 3], got {patch.shape}")
+
+            valid_patches.append(patch)
+
+        if not valid_patches:
+            raise ValueError("No patches given.")
+
+        return np.concatenate(
+            [p.reshape(-1, 3) for p in valid_patches],
+            axis=0,
+        ).reshape(-1, 1, 3)
+
     def _rgb_to_od(self, rgb: np.ndarray) -> np.ndarray:
         rgb = rgb.astype(np.float32)
-        rgb = np.maximum(rgb, 1)
+        rgb = np.clip(rgb, 1, self.Io)
         return -np.log((rgb + self.eps) / self.Io)
 
     def _estimate_stain_matrix(self, rgb: np.ndarray) -> np.ndarray:
-        od = self._rgb_to_od(rgb).reshape(-1, 3)
-
-        # 배경 제거
         od = self._rgb_to_od(rgb).reshape(-1, 3)
 
         od_norm = np.linalg.norm(od, axis=1)
@@ -74,12 +98,10 @@ class MacenkoNormalizer:
         if len(od) == 0:
             raise ValueError("No valid tissue pixels found. Try lowering beta.")
 
-        # OD covariance의 principal directions
         _, _, vh = np.linalg.svd(od, full_matrices=False)
-        top_vectors = vh[:2].T  # [3, 2]
+        top_vectors = vh[:2].T
 
         projected = od @ top_vectors
-
         angles = np.arctan2(projected[:, 1], projected[:, 0])
 
         min_angle = np.percentile(angles, self.alpha)
@@ -88,26 +110,28 @@ class MacenkoNormalizer:
         v1 = top_vectors @ np.array([np.cos(min_angle), np.sin(min_angle)])
         v2 = top_vectors @ np.array([np.cos(max_angle), np.sin(max_angle)])
 
-        # Hematoxylin / Eosin 순서 안정화
         if v1[0] > v2[0]:
             stain_matrix = np.stack([v1, v2], axis=1)
         else:
             stain_matrix = np.stack([v2, v1], axis=1)
 
-        stain_matrix = stain_matrix / (np.linalg.norm(stain_matrix, axis=0, keepdims=True) + self.eps)
+        stain_matrix = stain_matrix / (
+            np.linalg.norm(stain_matrix, axis=0, keepdims=True) + self.eps
+        )
 
-        return stain_matrix  # [3, 2]
+        return stain_matrix
 
     def _estimate_concentrations(
         self,
         rgb: np.ndarray,
         stain_matrix: np.ndarray,
     ) -> np.ndarray:
-        od = self._rgb_to_od(rgb).reshape(-1, 3).T  # [3, N]
+        od = self._rgb_to_od(rgb).reshape(-1, 3).T
 
         concentrations, _, _, _ = np.linalg.lstsq(stain_matrix, od, rcond=None)
+        concentrations = np.maximum(concentrations, 0)
 
-        return concentrations  # [2, N]
+        return concentrations
 
 
 class Macenko(ModelPipeline):
@@ -129,16 +153,35 @@ class Macenko(ModelPipeline):
         target_wsi_handle = open_wsi_handle(target_img_path)
         macenko = MacenkoNormalizer()
 
-        patch_sampler = PatchSampler(patch_size=64, strict_mpp_check=False)
-        source_refs = patch_sampler.sample(src_wsi_handle,mode="training", max_patches=16, save_debug=False)
-        target_refs = patch_sampler.sample(target_wsi_handle,mode="training", max_patches=16, save_debug=False)
+        fit_patch_sampler = PatchSampler(patch_size=256, strict_mpp_check=False)
 
-        source_patches = [load_patch(ref).img.transpose(1, 2, 0) for ref in source_refs]
-        target_patches = [load_patch(ref).img.transpose(1, 2, 0) for ref in target_refs]
-        for idx in range(len(source_patches)):
-            macenko.fit(source_patches[idx], target_patches[idx])
+        source_refs = fit_patch_sampler.sample(
+            src_wsi_handle,
+            mode="training",
+            max_patches=64,
+            save_debug=False,
+        )
 
-        grid_sampler = GridSampler(patch_size=64, read_level=0)
+        target_refs = fit_patch_sampler.sample(
+            target_wsi_handle,
+            mode="training",
+            max_patches=64,
+            save_debug=False,
+        )
+
+        source_patches = [
+            load_patch(ref).img.transpose(1, 2, 0)
+            for ref in source_refs
+        ]
+
+        target_patches = [
+            load_patch(ref).img.transpose(1, 2, 0)
+            for ref in target_refs
+        ]
+
+        macenko.fit(source_patches, target_patches)
+
+        grid_sampler = GridSampler(patch_size=256, read_level=0)
         src_refs = grid_sampler.sample(src_wsi_handle)
 
         writer = ZarrWSIWriter(

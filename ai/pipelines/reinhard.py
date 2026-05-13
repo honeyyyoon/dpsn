@@ -66,7 +66,7 @@ class Reinhard(ModelPipeline):
         src_thumb.save("result/source.png")
         target_thumb.save("result/target.png")
 
-        patch_sampler = PatchSampler()
+        patch_sampler = PatchSampler(strict_mpp_check=False)
 
         self.logger.info("Sample source image")
         src_ref_list = patch_sampler.sample(

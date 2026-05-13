@@ -1,12 +1,11 @@
 """
 Run example:
-./.venv/bin/python -m ai.models.stainswin.train_stainswin \
+.venv/bin/python -m ai.models.stainswin.train_stainswin \
   --train-source-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_aperio \
   --train-target-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_hamamatsu \
   --checkpoints-dir ai/checkpoints/stainswin \
   --experiment-name stainswin_aperio_to_hamamatsu \
   --image-size 256 \
-  --batch-size 8 \
   --epochs 40 \
   --device auto
 """
@@ -20,6 +19,7 @@ from pathlib import Path
 
 import torch
 from torch import nn
+from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -54,16 +54,16 @@ class StainSWINTrainingConfig:
     input_nc: int = 3
     output_nc: int = 3
     embed_dim: int = 30
-    num_heads: int = 6
-    num_res_blocks: int = 4
-    stbs_per_block: int = 6
+    num_heads: int = 3
+    num_res_blocks: int = 2
+    stbs_per_block: int = 4
     window_size: int = 8
     mlp_ratio: float = 4.0
     conv_kernel_size: int = 3
     reconstruction_channels: int | None = None
     use_image_residual: bool = True
 
-    batch_size: int = 32
+    batch_size: int = 16
     num_workers: int = 0
     lr: float = 1e-3
     weight_decay: float = 1e-4
@@ -139,6 +139,7 @@ def train_one_epoch(
     device: torch.device,
     epoch: int,
     total_epochs: int,
+    scaler: GradScaler | None = None,
 ) -> float:
     model.train()
     total_loss = 0.0
@@ -156,10 +157,19 @@ def train_one_epoch(
         target = target.to(device=device, dtype=torch.float32)
 
         optimizer.zero_grad()
-        output = model(source)
-        loss = loss_fn(output, target)
-        loss.backward()
-        optimizer.step()
+        amp_enabled = scaler is not None and device.type == "cuda"
+        with autocast(device_type=device.type, enabled=amp_enabled):
+            output = model(source)
+            loss = loss_fn(output, target)
+
+        if amp_enabled:
+            assert scaler is not None
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += float(loss.item())
         total_batches += 1
@@ -280,6 +290,7 @@ def _train_with_batch_size(
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs)
     loss_fn = CharbonnierLoss(epsilon=1e-3)
+    scaler = GradScaler("cuda", enabled=device.type == "cuda")
 
     latest_checkpoint_path = (
         config.checkpoints_dir / f"{config.experiment_name}_latest.pth"
@@ -294,6 +305,7 @@ def _train_with_batch_size(
             device=device,
             epoch=epoch,
             total_epochs=config.epochs,
+            scaler=scaler,
         )
 
         if val_loader is not None:
@@ -342,7 +354,7 @@ def _is_cuda_oom(error: RuntimeError) -> bool:
 
 
 def _candidate_batch_sizes(requested_batch_size: int) -> list[int]:
-    candidates = [32, 16, 8, 4]
+    candidates = [32, 16, 8, 4, 3, 2, 1]
     return [batch_size for batch_size in candidates if batch_size <= requested_batch_size]
 
 
@@ -375,7 +387,7 @@ def train(config: StainSWINTrainingConfig) -> Path:
     assert last_error is not None
     raise RuntimeError(
         "StainSWIN training ran out of GPU memory even after trying batch sizes "
-        "32, 16, 8, and 4."
+        "32, 16, 8, 4, 3, 2, and 1."
     ) from last_error
 
 

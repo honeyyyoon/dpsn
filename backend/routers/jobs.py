@@ -28,7 +28,7 @@ async def get_job(job_id: str):
     if job_id not in job_runner.jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     job = job_runner.jobs[job_id]
-    return JobStatusResponse(job_id=job_id, status=job["status"])
+    return JobStatusResponse(job_id=job_id, status=job["status"], progress=job.get("progress", 0), message=job.get("message", ""))
 
 # job이 done 상태일 때 job_id로 결과(metrics)를 조회해 반환
 @router.get("/jobs/{job_id}/results", response_model= JobResultResponse)

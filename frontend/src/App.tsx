@@ -460,10 +460,14 @@ export default function App() {
       const failedSet = new Set<number>();
 
       pollingRef.current = setInterval(async () => {
+        let progress = 0;
         for (let i = 0; i < jobIds.length; i++) {
           const jobId = jobIds[i];
           const modelId = modelIds[i];
-          if (finishedSet.has(modelId)) continue;
+          if (finishedSet.has(modelId)) {
+            progress += 100;
+            continue;
+          }
           try {
             const status = await getJobStatus(jobId);
             if (status.status === "done") {
@@ -473,9 +477,13 @@ export default function App() {
                 result_image_id: result.result_image_id,
               };
               finishedSet.add(modelId);
+              progress += 100;
             } else if (status.status === "failed") {
               failedSet.add(modelId);
               finishedSet.add(modelId);
+              progress += 100;
+            } else {
+              progress += status.progress;
             }
           } catch (err) {
             console.warn("Polling error, will retry:", err);
@@ -485,7 +493,7 @@ export default function App() {
         setJobs((prev) =>
           prev.map((j) =>
             j.id === uiJobId
-              ? { ...j, progress: finishedSet.size / jobIds.length }
+              ? { ...j, progress: progress / 100 / jobIds.length }
               : j,
           ),
         );

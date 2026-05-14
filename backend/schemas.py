@@ -13,6 +13,8 @@ class JobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: str  # "pending" / "running" / "done" / "failed"
+    progress: int  # 0~100
+    message: str  # 진행 상황에 대한 메시지
     
 class JobResultResponse(BaseModel):
     job_id: str

@@ -1,6 +1,8 @@
 import uuid
 import dataclasses
 from pathlib import Path
+import traceback
+
 from fastapi import BackgroundTasks
 
 from ai.runtime.task import Task
@@ -17,14 +19,14 @@ def run_job(job_id: str, model_id: int, image_id: str):
 
     try:
         src_path = image_store.get_image_path(image_id)
-        tgt_path = "data/GTEX-1117F-0126.svs"
+        tgt_path = DATA_DIR / "H06_00.tiff"
         task = Task(
             src_img_path=Path(src_path),
             target_img_path=Path(tgt_path),
             result_path=DATA_DIR / "results",
             model_id=model_id
         )
-        task_result = _worker.run(task, emit_event=None)
+        task_result = _worker.run(task, emit_event=lambda **kwargs: update_job(job_id, **kwargs))
 
         result_image_id = image_store.enroll_image(task_result.result_img_path)
 
@@ -32,7 +34,8 @@ def run_job(job_id: str, model_id: int, image_id: str):
         jobs[job_id]["result_image_id"] = result_image_id
         jobs[job_id]["result"] = dataclasses.asdict(task_result.metrics)
     except Exception as e:
-        print(e)
+        print("Error:", e)
+        traceback.print_exc()
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["result"] = str(e)
 
@@ -43,7 +46,24 @@ def create_job(model_id: int, image_id: str, background_tasks: BackgroundTasks) 
         "status": "pending",
         "model_id": model_id,
         "image_id": image_id,
+        "progress": 0,
+        "message": "Job created. Waiting to start.",
         "result": None
     }
     background_tasks.add_task(run_job, job_id, model_id, image_id)
     return job_id
+
+def update_job(
+    job_id: str,
+    status: str,
+    progress: int,
+    message: str,
+):
+    event = {
+        "status": status,
+        "progress": progress,
+        "message": message,
+    }
+
+    jobs[job_id].update(event)
+

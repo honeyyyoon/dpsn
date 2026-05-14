@@ -10,3 +10,9 @@ from ai.pipelines.staingan import (
     StainGANInferenceConfig,
     StainGANPipeline,
 )
+from ai.pipelines.stainswin import (
+    StainSWIN,
+    StainSWINConfig,
+    StainSWINInferenceConfig,
+    StainSWINPipeline,
+)

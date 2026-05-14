@@ -6,13 +6,13 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-
-def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
+# 큰 feature map을 작은 window들로 나누는 함수
+def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor: #입력 텐서 형식: (batch size, H: height, W: width, C: channel)
     """
     Partition a BHWC tensor into non-overlapping windows.
     """
-    b, h, w, c = x.shape
-    x = x.view(
+    b, h, w, c = x.shape #extract the shape of each dimension
+    x = x.view( #split in terms of height and width, and the rest (batch, channel) remain => windows
         b,
         h // window_size,
         window_size,
@@ -20,10 +20,11 @@ def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
         window_size,
         c,
     )
-    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous()
-    return windows.view(-1, window_size * window_size, c)
+    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous() #차원 순서를 바꿔서 window를 한 덩어리씩 꺼내기 좋게 재배치 (B, H//ws, W//ws, ws, ws, C)
+    return windows.view(-1, window_size * window_size, c) #모든 window를 하나의 큰 batch처럼 펼친다.
+    #final shape: (8, 64, 30) (window, # of tokens, channel)
 
-
+# 나눠진 window들을 다시 원래 feature map으로 합치는 함수. 위에서 잘라놓은 window를 다시 (B, H, W, C)로 바꾼다.
 def _window_reverse(
     windows: torch.Tensor,
     window_size: int,
@@ -34,8 +35,8 @@ def _window_reverse(
     Restore window-partitioned tokens to a padded BHWC tensor.
     """
     num_windows_per_image = (h // window_size) * (w // window_size)
-    b = windows.shape[0] // num_windows_per_image
-    x = windows.view(
+    b = windows.shape[0] // num_windows_per_image # batch size 다시 복원
+    x = windows.view( #flat하게 펴 놨던 window들을 다시 grid 구조로 복원하는 단계
         b,
         h // window_size,
         w // window_size,
@@ -43,21 +44,21 @@ def _window_reverse(
         window_size,
         -1,
     )
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous() #window 내부 픽셀 차원의 순서를 다시 원래 이미지 복원용으로 바꾼다
     return x.view(b, h, w, -1)
 
 
 class MLP(nn.Module):
     def __init__(
         self,
-        dim: int,
-        mlp_ratio: float = 4.0,
-        dropout: float = 0.0,
+        dim: int, #dim of input feature
+        mlp_ratio: float = 4.0, # hidden layer를 얼마나 크게 만들지
+        dropout: float = 0.0, # 학습 중 일부 값을 랜덤하게 꺼서 과적합을 줄이는 regularization part
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
         self.fc1 = nn.Linear(dim, hidden_dim)
-        self.act = nn.GELU()
+        self.act = nn.GELU() #GELU activation function
         self.drop1 = nn.Dropout(dropout)
         self.fc2 = nn.Linear(hidden_dim, dim)
         self.drop2 = nn.Dropout(dropout)
@@ -70,20 +71,23 @@ class MLP(nn.Module):
         x = self.drop2(x)
         return x
 
-
+# Swin Transformer의 핵심 attention 연산
+# 한 개의 local window 안에서 multi-head self-attention을 수행하고 relative position bias를 더해서 공간적 위치 정보를 반영하는 모듈
 class WindowAttention(nn.Module):
     """
     Standard Swin-style window attention with relative position bias.
+    input x dimension: (batch including # of windows, # of tokens inside window , # of channels)
+    n = 64, then its doing attention across the 64 tokens
     """
 
     def __init__(
         self,
         dim: int,
         window_size: int,
-        num_heads: int,
-        qkv_bias: bool = True,
-        attn_dropout: float = 0.0,
-        proj_dropout: float = 0.0,
+        num_heads: int, # num of attention heads (for parallel processing of attention)
+        qkv_bias: bool = True, # whether to include bias in q/k/v linear
+        attn_dropout: float = 0.0, # attention map dropout
+        proj_dropout: float = 0.0, # 마지막 projection dropout
     ) -> None:
         super().__init__()
         if dim % num_heads != 0:
@@ -96,9 +100,10 @@ class WindowAttention(nn.Module):
         self.dim = dim
         self.window_size = window_size
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.head_dim = dim // num_heads #각 attention head가 담당하는 feature 차원
+        self.scale = self.head_dim ** -0.5 #attention에서 query를 scaling할 때 쓰는 값
 
+        #상대 위치별 bias 값 표
         relative_size = (2 * window_size - 1) * (2 * window_size - 1)
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros(relative_size, num_heads)

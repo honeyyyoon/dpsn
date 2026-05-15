@@ -1,6 +1,6 @@
 import type { Model, JobResponse, JobStatusResponse, JobResultResponse } from './types';
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://10.10.40.182:8000';
 
 export async function getModels(): Promise<Model[]> {
   const res = await fetch(`${BASE}/models`);

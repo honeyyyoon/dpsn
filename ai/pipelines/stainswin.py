@@ -30,9 +30,9 @@ class StainSWINInferenceConfig:
     input_nc: int = 3
     output_nc: int = 3
     embed_dim: int = 30
-    num_heads: int = 3
-    num_res_blocks: int = 2
-    stbs_per_block: int = 4
+    num_heads: int = 6
+    num_res_blocks: int = 4
+    stbs_per_block: int = 6
     window_size: int = 8
     mlp_ratio: float = 4.0
     conv_kernel_size: int = 3

@@ -5,9 +5,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ai.metrics.ssim import SSIM
-from ai.metrics.psnr import PSNR
-from ai.metrics.fid import FID
 from ai.pipelines.base import ModelPipeline
 from ai.runtime.task import Metrics, Task, TaskResult
 
@@ -42,11 +39,7 @@ class Worker:
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            {
-                "ssim": SSIM(),
-                "psnr": PSNR(),
-                # "fid": FID(),
-            },
+            ["ssim", "psnr", "fid"],
             emit_event=emit_event
         )
         metrics = Metrics(

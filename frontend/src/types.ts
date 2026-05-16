@@ -55,4 +55,5 @@ export interface UiJob {
   progress?: number;
   src_image_id?: string;
   results?: Record<number, JobResult>;
+  imageFingerprint?: string;
 }

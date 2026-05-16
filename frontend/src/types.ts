@@ -44,7 +44,7 @@ export interface JobResult {
   result_image_id: string;
 }
 
-export type JobStatus = 'pending' | 'running' | 'done' | 'failed';
+export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface UiJob {
   id: string;

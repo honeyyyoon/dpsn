@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./styles.css";
 import { MODELS } from "./data";
 import type { UiJob, JobResult } from "./types";
-import { createJobs, getJobStatus, getJobResult } from "./api";
+import { createJobs, getJobStatus, getJobResult, deleteJob } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
 import { UploadCard, ModelPicker } from "./components/ConfigPanel";
@@ -344,67 +344,67 @@ const MOCK_JOBS: UiJob[] = [
   {
     id: "mock-x",
     wsi: "PAIP-liver-089",
-    modelIds: [4],
+    modelIds: [5],
     status: "pending",
     when: "대기중",
   },
   {
     id: "mock-1",
     wsi: "TCGA-BRCA-A2K4",
-    modelIds: [4, 5, 6],
+    modelIds: [1, 2, 5],
     status: "done",
     when: "2m",
     results: {
-      4: {
-        metrics: { ssim: 0.927, psnr: 30.12, fid: 9.4 },
-        result_image_id: "",
-      },
-      5: {
-        metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 },
-        result_image_id: "",
-      },
-      6: {
-        metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 },
-        result_image_id: "",
-      },
+      1: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 }, result_image_id: "" },
     },
   },
   {
     id: "mock-2",
     wsi: "GTEx-stomach-5",
-    modelIds: [3],
+    modelIds: [2],
     status: "done",
     when: "3h",
     results: {
-      3: {
-        metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 },
-        result_image_id: "",
-      },
+      2: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
     },
   },
   {
     id: "mock-3",
     wsi: "TCGA-LUAD-B41C",
-    modelIds: [1, 3, 4, 6],
+    modelIds: [1, 2, 5],
     status: "done",
     when: "1d",
     results: {
-      1: {
-        metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 },
-        result_image_id: "",
-      },
-      3: {
-        metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 },
-        result_image_id: "",
-      },
-      4: {
-        metrics: { ssim: 0.927, psnr: 30.12, fid: 9.4 },
-        result_image_id: "",
-      },
-      6: {
-        metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 },
-        result_image_id: "",
-      },
+      1: { metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 }, result_image_id: "" },
+    },
+  },
+  {
+    id: "mock-4",
+    wsi: "CPTAC-CCRCC-C3L-00004",
+    modelIds: [1],
+    status: "failed",
+    when: "2d",
+  },
+  {
+    id: "mock-5",
+    wsi: "NLST-lung-00891",
+    modelIds: [2, 5],
+    status: "cancelled",
+    when: "2d",
+  },
+  {
+    id: "mock-6",
+    wsi: "TCGA-OV-A5KX",
+    modelIds: [1, 2],
+    status: "done",
+    when: "3d",
+    results: {
+      1: { metrics: { ssim: 0.876, psnr: 27.91, fid: 14.3 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.898, psnr: 28.76, fid: 12.1 }, result_image_id: "" },
     },
   },
 ];
@@ -430,6 +430,19 @@ export default function App() {
     setSelected(new Set());
     setRunning(false);
     setActiveJobId(null);
+  };
+
+  const handleJobTerminate = async (jobId: string) => {
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const isRunning = job.status === 'running' || job.status === 'pending';
+    try { await deleteJob(jobId); } catch { /* 서버에 없어도 UI 반영 */ }
+    if (isRunning) {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'cancelled' } : j));
+    } else {
+      setJobs(prev => prev.filter(j => j.id !== jobId));
+      if (activeJobId === jobId) setActiveJobId(null);
+    }
   };
 
   const run = async () => {
@@ -552,6 +565,7 @@ export default function App() {
           if (job?.status === "done") setActiveJobId(id);
         }}
         onNewRun={reset}
+        onJobTerminate={handleJobTerminate}
       />
       <div className="main">
         <Topbar

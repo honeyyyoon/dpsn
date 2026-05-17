@@ -164,6 +164,7 @@ interface SingleResultProps {
 
 export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
   const [zoom, setZoom] = useState(1);
+  const [sharedRatio, setSharedRatio] = useState<number | null>(null);
   const seed = 7;
   const inner = {
     width: "100%",
@@ -241,6 +242,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
                 mode="dim"
                 label="원본"
                 chip="원본"
+                style={!srcImageId && sharedRatio ? { aspectRatio: `${sharedRatio}` } : undefined}
               />
             </div>
           </div>
@@ -263,6 +265,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
                 sublabel={model.name}
                 chip={model.name}
                 chipColor={model.tint}
+                onRatioDetected={sharedRatio === null ? setSharedRatio : undefined}
               />
             </div>
           </div>
@@ -296,6 +299,7 @@ interface MultiDashboardProps {
 
 export function MultiDashboard({ models, results, srcImageId }: MultiDashboardProps) {
   const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
+  const [sharedRatio, setSharedRatio] = useState<number | null>(null);
   const seed = 7;
 
   const sorted = [...models].sort((a, b) => {
@@ -382,9 +386,10 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
             src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
             mode="dim"
             chip="원본"
+            style={!srcImageId && sharedRatio ? { aspectRatio: `${sharedRatio}` } : undefined}
           />
         </div>
-        {sorted.map((m) => {
+        {sorted.map((m, i) => {
           const r = results[m.id];
           return (
             <div key={m.id} className="card fade-up" style={{ padding: 12 }}>
@@ -396,6 +401,7 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
                 intensity={0.8}
                 chip={m.name}
                 chipColor={m.tint}
+                onRatioDetected={i === 0 && sharedRatio === null ? setSharedRatio : undefined}
               />
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 2 }}>
                 <div

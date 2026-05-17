@@ -537,21 +537,25 @@ export default function App() {
     setRunning(true);
     const wsiName = file.name.replace(/\.[^/.]+$/, "");
     const modelIds = [...selected];
+    const tempId = `uploading-${Date.now()}`;
+    setJobs((prev) => [{
+      id: tempId, wsi: wsiName, modelIds,
+      status: "pending" as const, when: "업로드 중", progress: 0,
+      imageFingerprint: fingerprint ?? undefined,
+    }, ...prev]);
     try {
       const responses = await createJobs(file, modelIds);
       const jobIds = responses.map((r) => r.job_id);
       const uiJobId = jobIds[0];
-      const newJob: UiJob = {
-        id: uiJobId, wsi: wsiName, modelIds,
-        status: "running", when: "now", progress: 0,
-        src_image_id: responses[0].image_id,
-        imageFingerprint: fingerprint ?? undefined,
-      };
-      setJobs((prev) => [newJob, ...prev]);
+      setJobs((prev) => prev.map(j => j.id === tempId
+        ? { ...j, id: uiJobId, status: "running" as const, when: "now", src_image_id: responses[0].image_id }
+        : j
+      ));
       startPolling(uiJobId, jobIds, modelIds);
     } catch (err) {
       console.error(err);
       setRunning(false);
+      setJobs((prev) => prev.filter(j => j.id !== tempId));
     }
   };
 

@@ -84,15 +84,12 @@ interface WsiViewProps {
   chipColor?: string;
   style?: CSSProperties;
   children?: ReactNode;
+  onRatioDetected?: (ratio: number) => void;
 }
 
 export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intensity = 1,
-                          showGrid = false, chip, chipColor, style, children }: WsiViewProps) {
+                          showGrid = false, chip, chipColor, style, children, onRatioDetected }: WsiViewProps) {
   const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
-
-  const aspectRatioStyle = src && detectedRatio
-    ? { aspectRatio: `${detectedRatio}` }
-    : { aspectRatio: '1 / 1' };
 
   return (
     <div style={{
@@ -100,9 +97,10 @@ export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intens
       background: '#0f1629',
       borderRadius: 'var(--r-md)',
       overflow: 'hidden',
+      aspectRatio: '1 / 1',
       minHeight: 0,
       ...style,
-      ...aspectRatioStyle,
+      ...(src && detectedRatio ? { aspectRatio: `${detectedRatio}` } : {}),
     }}>
       {src
         ? <img
@@ -110,7 +108,11 @@ export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intens
             alt=""
             onLoad={(e) => {
               const { naturalWidth, naturalHeight } = e.currentTarget;
-              if (naturalWidth && naturalHeight) setDetectedRatio(naturalWidth / naturalHeight);
+              if (naturalWidth && naturalHeight) {
+                const ratio = naturalWidth / naturalHeight;
+                setDetectedRatio(ratio);
+                onRatioDetected?.(ratio);
+              }
             }}
             style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
           />

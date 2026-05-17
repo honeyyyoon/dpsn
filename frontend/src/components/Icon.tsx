@@ -53,6 +53,10 @@ export default function Icon({ name, size = 18, color = 'currentColor', strokeWi
       return <svg {...common}><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg>;
     case 'eye':
       return <svg {...common}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>;
+    case 'trash':
+      return <svg {...common}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>;
+    case 'stop':
+      return <svg {...common} fill={color} stroke="none"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>;
     case 'dot-menu':
       return <svg {...common}><circle cx="12" cy="5" r="1" fill={color}/><circle cx="12" cy="12" r="1" fill={color}/><circle cx="12" cy="19" r="1" fill={color}/></svg>;
     case 'swap':

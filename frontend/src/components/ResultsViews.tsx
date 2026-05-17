@@ -163,8 +163,8 @@ interface SingleResultProps {
 }
 
 export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
-  const [showGrid, setShowGrid] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [sharedRatio, setSharedRatio] = useState<number | null>(null);
   const seed = 7;
   const inner = {
     width: "100%",
@@ -220,25 +220,6 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
           >
             <Icon name="zoom-in" size={16} />
           </button>
-          <div
-            style={{
-              width: 1,
-              height: 18,
-              background: "var(--border)",
-              margin: "0 6px",
-            }}
-          />
-          <button
-            className="icon-btn"
-            onClick={() => setShowGrid((g) => !g)}
-            style={
-              showGrid
-                ? { background: "var(--accent-50)", color: "var(--accent)" }
-                : undefined
-            }
-          >
-            <Icon name="grid" size={16} />
-          </button>
         </div>
       </div>
 
@@ -261,7 +242,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
                 mode="dim"
                 label="원본"
                 chip="원본"
-                showGrid={showGrid}
+                style={!srcImageId && sharedRatio ? { aspectRatio: `${sharedRatio}` } : undefined}
               />
             </div>
           </div>
@@ -284,7 +265,7 @@ export function SingleResult({ model, result, srcImageId }: SingleResultProps) {
                 sublabel={model.name}
                 chip={model.name}
                 chipColor={model.tint}
-                showGrid={showGrid}
+                onRatioDetected={sharedRatio === null ? setSharedRatio : undefined}
               />
             </div>
           </div>
@@ -318,6 +299,7 @@ interface MultiDashboardProps {
 
 export function MultiDashboard({ models, results, srcImageId }: MultiDashboardProps) {
   const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
+  const [sharedRatio, setSharedRatio] = useState<number | null>(null);
   const seed = 7;
 
   const sorted = [...models].sort((a, b) => {
@@ -340,6 +322,32 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
     best[def.key] = vals[0].id;
   });
 
+  const totalCards = models.length + 1;
+  const gridCols =
+    totalCards <= 2 ? 2 :
+    totalCards <= 3 ? 3 :
+    totalCards <= 4 ? 2 :
+    3;
+
+  const handleDownload = async (imageId: string, modelName: string) => {
+    try {
+      const res = await fetch(getImageUrl(imageId));
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${modelName}_normalized.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('다운로드에 실패했습니다.');
+    }
+  };
+
   const thStyle: CSSProperties = {
     textAlign: "left",
     padding: "10px 16px",
@@ -354,27 +362,23 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
     <div
       style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}
-          >
-            결과 비교 대시보드
-          </div>
-          <span className="chip accent dot">방법 {models.length}개</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>
+          결과 비교 대시보드
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {sorted.map((m) => (
+            <span key={m.id} className="chip" style={{ background: `color-mix(in oklab, ${m.tint} 12%, var(--panel))`, color: m.tint, borderColor: `color-mix(in oklab, ${m.tint} 30%, transparent)` }}>
+              {m.name}
+            </span>
+          ))}
         </div>
       </div>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
+          gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
           gap: 14,
         }}
       >
@@ -384,10 +388,10 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
             src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
             mode="dim"
             chip="원본"
-            style={{ aspectRatio: "1 / 1" }}
+            style={!srcImageId && sharedRatio ? { aspectRatio: `${sharedRatio}` } : undefined}
           />
         </div>
-        {sorted.map((m) => {
+        {sorted.map((m, i) => {
           const r = results[m.id];
           return (
             <div key={m.id} className="card fade-up" style={{ padding: 12 }}>
@@ -399,61 +403,65 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
                 intensity={0.8}
                 chip={m.name}
                 chipColor={m.tint}
-                style={{ aspectRatio: "1 / 1" }}
+                onRatioDetected={i === 0 && sharedRatio === null ? setSharedRatio : undefined}
               />
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 6,
-                  marginTop: 10,
-                }}
-              >
-                {METRIC_DEFS.map((def) => {
-                  const isBest = best[def.key] === m.id;
-                  const val =
-                    r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
-                  return (
-                    <div
-                      key={def.key}
-                      style={{
-                        padding: "6px 8px",
-                        borderRadius: "var(--r-sm)",
-                        background: isBest
-                          ? "color-mix(in oklab, var(--success) 10%, var(--panel))"
-                          : "var(--bg-sunken)",
-                        border: isBest
-                          ? "1px solid color-mix(in oklab, var(--success) 30%, transparent)"
-                          : "1px solid transparent",
-                      }}
-                    >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 2 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3, 1fr)",
+                    gap: 6,
+                    flex: 1,
+                  }}
+                >
+                  {METRIC_DEFS.map((def) => {
+                    const isBest = best[def.key] === m.id;
+                    const val =
+                      r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
+                    return (
                       <div
+                        key={def.key}
                         style={{
-                          fontSize: 9,
-                          color: "var(--text-muted)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.04em",
-                          fontWeight: 600,
+                          padding: "6px 8px",
+                          borderRadius: "var(--r-sm)",
+                          background: isBest
+                            ? "color-mix(in oklab, var(--success) 10%, var(--panel))"
+                            : "var(--bg-sunken)",
+                          border: isBest
+                            ? "1px solid color-mix(in oklab, var(--success) 30%, transparent)"
+                            : "1px solid transparent",
                         }}
                       >
-                        {def.label}
-                        {isBest && (
-                          <span
-                            style={{ color: "var(--success)", marginLeft: 4 }}
-                          >
-                            ★
-                          </span>
-                        )}
+                        <div
+                          style={{
+                            fontSize: 9,
+                            color: "var(--text-muted)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {def.label}
+                          {isBest && (
+                            <span style={{ color: "var(--success)", marginLeft: 4 }}>★</span>
+                          )}
+                        </div>
+                        <div className="num" style={{ fontSize: 13, fontWeight: 600 }}>
+                          {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                        </div>
                       </div>
-                      <div
-                        className="num"
-                        style={{ fontSize: 13, fontWeight: 600 }}
-                      >
-                        {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                <button
+                  className="icon-btn"
+                  style={{ marginLeft: 8, flexShrink: 0 }}
+                  disabled={!r?.result_image_id}
+                  onClick={() => r?.result_image_id && handleDownload(r.result_image_id, m.name)}
+                  title="결과 이미지 다운로드"
+                >
+                  <Icon name="download" size={14}/>
+                </button>
               </div>
             </div>
           );

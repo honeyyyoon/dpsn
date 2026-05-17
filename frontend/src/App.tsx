@@ -3,11 +3,12 @@ import type { ReactNode } from "react";
 import "./styles.css";
 import { MODELS } from "./data";
 import type { UiJob, JobResult } from "./types";
-import { createJobs, getJobStatus, getJobResult } from "./api";
+import { createJobs, getJobStatus, getJobResult, deleteJob } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
 import { UploadCard, ModelPicker } from "./components/ConfigPanel";
 import { SingleResult, MultiDashboard } from "./components/ResultsViews";
+import SameImageModal from "./components/SameImageModal";
 
 function Topbar({
   file,
@@ -163,6 +164,7 @@ function ConfigColumn({
   onRun,
   running,
   fileInputRef,
+  matchingJob,
 }: {
   file: File | null;
   onPickFile: (f: File) => void;
@@ -172,6 +174,7 @@ function ConfigColumn({
   onRun: () => void;
   running: boolean;
   fileInputRef: { current: HTMLInputElement | null };
+  matchingJob?: UiJob | null;
 }) {
   const canRun = file && selected.size > 0;
   const selectedModels = [...selected]
@@ -230,6 +233,11 @@ function ConfigColumn({
                 }
                 onClear={onClearFile}
               />
+              {matchingJob && (
+                <div style={{ fontSize: 12, color: 'var(--accent-600)', marginTop: 8 }}>
+                  ⚡ "{matchingJob.wsi}"로 실행한 이전 작업이 있어요.
+                </div>
+              )}
             </div>
             <div>
               <div
@@ -334,7 +342,7 @@ function ConfigColumn({
 
 const MOCK_JOBS: UiJob[] = [
   {
-    id: "mock-0",
+    id: "mock-run",
     wsi: "CAMELYON17-042",
     modelIds: [1, 2],
     status: "running",
@@ -342,70 +350,95 @@ const MOCK_JOBS: UiJob[] = [
     progress: 0.6,
   },
   {
-    id: "mock-x",
+    id: "mock-pending",
     wsi: "PAIP-liver-089",
-    modelIds: [4],
+    modelIds: [5],
     status: "pending",
     when: "대기중",
   },
+  // 2 models
   {
-    id: "mock-1",
-    wsi: "TCGA-BRCA-A2K4",
-    modelIds: [4, 5, 6],
+    id: "mock-2m",
+    wsi: "GTEx-stomach-5",
+    modelIds: [1, 2],
     status: "done",
-    when: "2m",
+    when: "1h",
     results: {
-      4: {
-        metrics: { ssim: 0.927, psnr: 30.12, fid: 9.4 },
-        result_image_id: "",
-      },
-      5: {
-        metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 },
-        result_image_id: "",
-      },
-      6: {
-        metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 },
-        result_image_id: "",
-      },
+      1: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
     },
   },
+  // 3 models
   {
-    id: "mock-2",
-    wsi: "GTEx-stomach-5",
-    modelIds: [3],
+    id: "mock-3m",
+    wsi: "TCGA-BRCA-A2K4",
+    modelIds: [1, 2, 5],
+    status: "done",
+    when: "2h",
+    results: {
+      1: { metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 }, result_image_id: "" },
+    },
+  },
+  // 4 models
+  {
+    id: "mock-4m",
+    wsi: "TCGA-LUAD-B41C",
+    modelIds: [1, 2, 3, 5],
     status: "done",
     when: "3h",
     results: {
-      3: {
-        metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 },
-        result_image_id: "",
-      },
+      1: { metrics: { ssim: 0.876, psnr: 27.91, fid: 14.3 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.898, psnr: 28.76, fid: 12.1 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.912, psnr: 29.45, fid: 10.8 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 }, result_image_id: "" },
     },
   },
+  // 5 models
   {
-    id: "mock-3",
-    wsi: "TCGA-LUAD-B41C",
-    modelIds: [1, 3, 4, 6],
+    id: "mock-5m",
+    wsi: "CPTAC-CCRCC-C3L-00004",
+    modelIds: [1, 2, 3, 4, 5],
     status: "done",
     when: "1d",
     results: {
-      1: {
-        metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 },
-        result_image_id: "",
-      },
-      3: {
-        metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 },
-        result_image_id: "",
-      },
-      4: {
-        metrics: { ssim: 0.927, psnr: 30.12, fid: 9.4 },
-        result_image_id: "",
-      },
-      6: {
-        metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 },
-        result_image_id: "",
-      },
+      1: { metrics: { ssim: 0.871, psnr: 27.52, fid: 15.1 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.893, psnr: 28.34, fid: 12.8 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.907, psnr: 29.12, fid: 11.2 }, result_image_id: "" },
+      4: { metrics: { ssim: 0.928, psnr: 30.21, fid: 9.4 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.945, psnr: 31.78, fid: 7.9 }, result_image_id: "" },
     },
+  },
+  // 6 models
+  {
+    id: "mock-6m",
+    wsi: "TCGA-OV-A5KX",
+    modelIds: [1, 2, 3, 4, 5, 6],
+    status: "done",
+    when: "2d",
+    results: {
+      1: { metrics: { ssim: 0.868, psnr: 27.31, fid: 15.8 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.889, psnr: 28.15, fid: 13.2 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.904, psnr: 28.97, fid: 11.6 }, result_image_id: "" },
+      4: { metrics: { ssim: 0.923, psnr: 30.04, fid: 9.7 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.938, psnr: 31.22, fid: 8.4 }, result_image_id: "" },
+      6: { metrics: { ssim: 0.952, psnr: 32.41, fid: 7.1 }, result_image_id: "" },
+    },
+  },
+  {
+    id: "mock-fail",
+    wsi: "NLST-lung-00891",
+    modelIds: [2, 5],
+    status: "failed",
+    when: "2d",
+  },
+  {
+    id: "mock-cancel",
+    wsi: "PAIP-colon-112",
+    modelIds: [1, 3],
+    status: "cancelled",
+    when: "3d",
   },
 ];
 
@@ -415,8 +448,14 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [jobs, setJobs] = useState<UiJob[]>(MOCK_JOBS);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [showSameImageModal, setShowSameImageModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fingerprint = file ? `${file.name}:${file.size}` : null;
+  const matchingJob = fingerprint
+    ? (jobs.find(j => j.imageFingerprint === fingerprint && j.status !== 'failed' && j.status !== 'cancelled') ?? null)
+    : null;
 
   const toggleModel = (id: number) =>
     setSelected((prev) => {
@@ -432,95 +471,138 @@ export default function App() {
     setActiveJobId(null);
   };
 
-  const run = async () => {
-    if (!file || selected.size === 0) return;
-    setRunning(true);
+  const handleJobTerminate = async (jobId: string) => {
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const isRunning = job.status === 'running' || job.status === 'pending';
+    try { await deleteJob(jobId); } catch { /* 서버에 없어도 UI 반영 */ }
+    if (isRunning) {
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      setRunning(false);
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'cancelled' } : j));
+    } else {
+      setJobs(prev => prev.filter(j => j.id !== jobId));
+      if (activeJobId === jobId) setActiveJobId(null);
+    }
+  };
 
-    const wsiName = file.name.replace(/\.[^/.]+$/, "");
-    const modelIds = [...selected];
+  const startPolling = (uiJobId: string, jobIds: string[], modelIds: number[]) => {
+    const newResults: Record<number, JobResult> = {};
+    const finishedSet = new Set<number>();
+    const failedSet = new Set<number>();
 
-    try {
-      const responses = await createJobs(file, modelIds);
-      const jobIds = responses.map((r) => r.job_id);
-
-      const uiJobId = jobIds[0];
-      const newJob: UiJob = {
-        id: uiJobId,
-        wsi: wsiName,
-        modelIds,
-        status: "running",
-        when: "now",
-        progress: 0,
-        src_image_id: responses[0].image_id,
-      };
-      setJobs((prev) => [newJob, ...prev]);
-
-      const results: Record<number, JobResult> = {};
-      const finishedSet = new Set<number>();
-      const failedSet = new Set<number>();
-
-      pollingRef.current = setInterval(async () => {
-        let progress = 0;
-        for (let i = 0; i < jobIds.length; i++) {
-          const jobId = jobIds[i];
-          const modelId = modelIds[i];
-          if (finishedSet.has(modelId)) {
+    pollingRef.current = setInterval(async () => {
+      let progress = 0;
+      for (let i = 0; i < jobIds.length; i++) {
+        const jobId = jobIds[i];
+        const modelId = modelIds[i];
+        if (finishedSet.has(modelId)) { progress += 100; continue; }
+        try {
+          const status = await getJobStatus(jobId);
+          if (status.status === "done") {
+            const result = await getJobResult(jobId);
+            newResults[modelId] = { metrics: result.metrics, result_image_id: result.result_image_id };
+            finishedSet.add(modelId);
             progress += 100;
-            continue;
+          } else if (status.status === "failed") {
+            failedSet.add(modelId);
+            finishedSet.add(modelId);
+            progress += 100;
+          } else {
+            progress += status.progress;
           }
-          try {
-            const status = await getJobStatus(jobId);
-            if (status.status === "done") {
-              const result = await getJobResult(jobId);
-              results[modelId] = {
-                metrics: result.metrics,
-                result_image_id: result.result_image_id,
-              };
-              finishedSet.add(modelId);
-              progress += 100;
-            } else if (status.status === "failed") {
-              failedSet.add(modelId);
-              finishedSet.add(modelId);
-              progress += 100;
-            } else {
-              progress += status.progress;
-            }
-          } catch (err) {
-            console.warn("Polling error, will retry:", err);
-          }
+        } catch (err) {
+          console.warn("Polling error, will retry:", err);
         }
+      }
 
+      setJobs((prev) =>
+        prev.map((j) => j.id === uiJobId ? { ...j, progress: progress / 100 / jobIds.length } : j),
+      );
+
+      if (finishedSet.size >= jobIds.length) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setRunning(false);
+        const allFailed = failedSet.size === jobIds.length;
         setJobs((prev) =>
           prev.map((j) =>
             j.id === uiJobId
-              ? { ...j, progress: progress / 100 / jobIds.length }
+              ? { ...j, status: allFailed ? "failed" : "done", results: { ...(j.results ?? {}), ...newResults }, when: "방금" }
               : j,
           ),
         );
+        if (!allFailed) setActiveJobId(uiJobId);
+      }
+    }, 1500);
+  };
 
-        if (finishedSet.size >= jobIds.length) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          setRunning(false);
-          const allFailed = failedSet.size === jobIds.length;
-          setJobs((prev) =>
-            prev.map((j) =>
-              j.id === uiJobId
-                ? {
-                    ...j,
-                    status: allFailed ? "failed" : "done",
-                    results,
-                    when: "방금",
-                  }
-                : j,
-            ),
-          );
-          if (!allFailed) setActiveJobId(uiJobId);
-        }
-      }, 1500);
+  const runAsNew = async () => {
+    if (!file || selected.size === 0) return;
+    setRunning(true);
+    const wsiName = file.name.replace(/\.[^/.]+$/, "");
+    const modelIds = [...selected];
+    const tempId = `uploading-${Date.now()}`;
+    setJobs((prev) => [{
+      id: tempId, wsi: wsiName, modelIds,
+      status: "pending" as const, when: "업로드 중", progress: 0,
+      imageFingerprint: fingerprint ?? undefined,
+    }, ...prev]);
+    try {
+      const responses = await createJobs(file, modelIds);
+      const jobIds = responses.map((r) => r.job_id);
+      const uiJobId = jobIds[0];
+      setJobs((prev) => prev.map(j => j.id === tempId
+        ? { ...j, id: uiJobId, status: "running" as const, when: "now", src_image_id: responses[0].image_id }
+        : j
+      ));
+      startPolling(uiJobId, jobIds, modelIds);
     } catch (err) {
       console.error(err);
       setRunning(false);
+      setJobs((prev) => prev.filter(j => j.id !== tempId));
     }
+  };
+
+  const runWithExtraModels = async (baseJob: UiJob) => {
+    setShowSameImageModal(false);
+    if (!file) return;
+    const existingIds = new Set(baseJob.modelIds);
+    const newModelIds = [...selected].filter(id => !existingIds.has(id));
+    if (newModelIds.length === 0) {
+      const names = [...selected]
+        .map(id => MODELS.find(m => m.id === id)?.name)
+        .filter(Boolean)
+        .join(', ');
+      alert(`${names} 모델은 이미 실행되었습니다.`);
+      return;
+    }
+    setRunning(true);
+    setJobs((prev) => {
+      const current = prev.find(j => j.id === baseJob.id);
+      if (!current) return prev;
+      const rest = prev.filter(j => j.id !== baseJob.id);
+      const mergedModelIds = [...new Set([...current.modelIds, ...newModelIds])];
+      return [{ ...current, status: "running" as const, modelIds: mergedModelIds }, ...rest];
+    });
+    setActiveJobId(baseJob.id);
+    try {
+      const responses = await createJobs(file, newModelIds);
+      const jobIds = responses.map((r) => r.job_id);
+      startPolling(baseJob.id, jobIds, newModelIds);
+    } catch (err) {
+      console.error(err);
+      setRunning(false);
+      setJobs((prev) => prev.map(j => j.id === baseJob.id ? { ...j, status: "failed" as const } : j));
+    }
+  };
+
+  const run = () => {
+    if (!file || selected.size === 0 || running) return;
+    if (matchingJob) {
+      setShowSameImageModal(true);
+      return;
+    }
+    runAsNew();
   };
 
   useEffect(() => {
@@ -540,7 +622,7 @@ export default function App() {
     ? activeJob!.wsi
     : running
       ? "분석 실행 중"
-      : "새 작업";
+      : "Stain Normalization 비교 플랫폼";
 
   return (
     <div className="app">
@@ -552,6 +634,7 @@ export default function App() {
           if (job?.status === "done") setActiveJobId(id);
         }}
         onNewRun={reset}
+        onJobTerminate={handleJobTerminate}
       />
       <div className="main">
         <Topbar
@@ -598,10 +681,20 @@ export default function App() {
               onRun={run}
               running={running}
               fileInputRef={fileInputRef}
+              matchingJob={matchingJob}
             />
           )}
         </div>
       </div>
+      {showSameImageModal && matchingJob && (
+        <SameImageModal
+          fileName={file!.name}
+          matchingJob={matchingJob}
+          onDifferent={() => { setShowSameImageModal(false); runAsNew(); }}
+          onAddModels={() => runWithExtraModels(matchingJob)}
+          onClose={() => setShowSameImageModal(false)}
+        />
+      )}
     </div>
   );
 }

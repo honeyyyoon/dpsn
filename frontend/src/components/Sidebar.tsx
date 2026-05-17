@@ -173,12 +173,8 @@ interface SidebarProps {
 export default function Sidebar({ jobs, activeJobId, onSelectJob, onNewRun, onJobTerminate }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <div className="sb-brand">
-        <div className="mark">S</div>
-        <div style={{ minWidth: 0 }}>
-          <div className="name">Stain Normalization</div>
-          <div className="org">비교 플랫폼</div>
-        </div>
+      <div className="sb-brand" style={{ padding: '12px 16px', justifyContent: 'center' }}>
+        <img src="/mainImage.png" alt="Stain Normalization 비교 플랫폼" style={{ height: 36, width: 'auto', display: 'block' }}/>
       </div>
 
       <div style={{ padding: '12px 12px 4px' }}>

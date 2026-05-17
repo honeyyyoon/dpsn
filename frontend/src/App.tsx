@@ -342,7 +342,7 @@ function ConfigColumn({
 
 const MOCK_JOBS: UiJob[] = [
   {
-    id: "mock-0",
+    id: "mock-run",
     wsi: "CAMELYON17-042",
     modelIds: [1, 2],
     status: "running",
@@ -350,70 +350,95 @@ const MOCK_JOBS: UiJob[] = [
     progress: 0.6,
   },
   {
-    id: "mock-x",
+    id: "mock-pending",
     wsi: "PAIP-liver-089",
     modelIds: [5],
     status: "pending",
     when: "대기중",
   },
+  // 2 models
   {
-    id: "mock-1",
+    id: "mock-2m",
+    wsi: "GTEx-stomach-5",
+    modelIds: [1, 2],
+    status: "done",
+    when: "1h",
+    results: {
+      1: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
+    },
+  },
+  // 3 models
+  {
+    id: "mock-3m",
     wsi: "TCGA-BRCA-A2K4",
     modelIds: [1, 2, 5],
     status: "done",
-    when: "2m",
+    when: "2h",
     results: {
-      1: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
-      2: { metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 }, result_image_id: "" },
-      5: { metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 }, result_image_id: "" },
+      1: { metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.921, psnr: 29.84, fid: 10.2 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.934, psnr: 30.87, fid: 8.9 }, result_image_id: "" },
     },
   },
+  // 4 models
   {
-    id: "mock-2",
-    wsi: "GTEx-stomach-5",
-    modelIds: [2],
+    id: "mock-4m",
+    wsi: "TCGA-LUAD-B41C",
+    modelIds: [1, 2, 3, 5],
     status: "done",
     when: "3h",
     results: {
-      2: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
-    },
-  },
-  {
-    id: "mock-3",
-    wsi: "TCGA-LUAD-B41C",
-    modelIds: [1, 2, 5],
-    status: "done",
-    when: "1d",
-    results: {
-      1: { metrics: { ssim: 0.891, psnr: 28.42, fid: 12.6 }, result_image_id: "" },
-      2: { metrics: { ssim: 0.905, psnr: 29.03, fid: 11.9 }, result_image_id: "" },
+      1: { metrics: { ssim: 0.876, psnr: 27.91, fid: 14.3 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.898, psnr: 28.76, fid: 12.1 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.912, psnr: 29.45, fid: 10.8 }, result_image_id: "" },
       5: { metrics: { ssim: 0.941, psnr: 31.44, fid: 8.2 }, result_image_id: "" },
     },
   },
+  // 5 models
   {
-    id: "mock-4",
+    id: "mock-5m",
     wsi: "CPTAC-CCRCC-C3L-00004",
-    modelIds: [1],
+    modelIds: [1, 2, 3, 4, 5],
+    status: "done",
+    when: "1d",
+    results: {
+      1: { metrics: { ssim: 0.871, psnr: 27.52, fid: 15.1 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.893, psnr: 28.34, fid: 12.8 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.907, psnr: 29.12, fid: 11.2 }, result_image_id: "" },
+      4: { metrics: { ssim: 0.928, psnr: 30.21, fid: 9.4 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.945, psnr: 31.78, fid: 7.9 }, result_image_id: "" },
+    },
+  },
+  // 6 models
+  {
+    id: "mock-6m",
+    wsi: "TCGA-OV-A5KX",
+    modelIds: [1, 2, 3, 4, 5, 6],
+    status: "done",
+    when: "2d",
+    results: {
+      1: { metrics: { ssim: 0.868, psnr: 27.31, fid: 15.8 }, result_image_id: "" },
+      2: { metrics: { ssim: 0.889, psnr: 28.15, fid: 13.2 }, result_image_id: "" },
+      3: { metrics: { ssim: 0.904, psnr: 28.97, fid: 11.6 }, result_image_id: "" },
+      4: { metrics: { ssim: 0.923, psnr: 30.04, fid: 9.7 }, result_image_id: "" },
+      5: { metrics: { ssim: 0.938, psnr: 31.22, fid: 8.4 }, result_image_id: "" },
+      6: { metrics: { ssim: 0.952, psnr: 32.41, fid: 7.1 }, result_image_id: "" },
+    },
+  },
+  {
+    id: "mock-fail",
+    wsi: "NLST-lung-00891",
+    modelIds: [2, 5],
     status: "failed",
     when: "2d",
   },
   {
-    id: "mock-5",
-    wsi: "NLST-lung-00891",
-    modelIds: [2, 5],
+    id: "mock-cancel",
+    wsi: "PAIP-colon-112",
+    modelIds: [1, 3],
     status: "cancelled",
-    when: "2d",
-  },
-  {
-    id: "mock-6",
-    wsi: "TCGA-OV-A5KX",
-    modelIds: [1, 2],
-    status: "done",
     when: "3d",
-    results: {
-      1: { metrics: { ssim: 0.876, psnr: 27.91, fid: 14.3 }, result_image_id: "" },
-      2: { metrics: { ssim: 0.898, psnr: 28.76, fid: 12.1 }, result_image_id: "" },
-    },
   },
 ];
 
@@ -582,7 +607,7 @@ export default function App() {
     ? activeJob!.wsi
     : running
       ? "분석 실행 중"
-      : "새 작업";
+      : "Stain Normalization 비교 플랫폼";
 
   return (
     <div className="app">

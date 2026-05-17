@@ -332,6 +332,7 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
   const handleDownload = async (imageId: string, modelName: string) => {
     try {
       const res = await fetch(getImageUrl(imageId));
+      if (!res.ok) throw new Error(`${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -343,6 +344,7 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
       URL.revokeObjectURL(blobUrl);
     } catch (err) {
       console.error('Download failed:', err);
+      alert('다운로드에 실패했습니다.');
     }
   };
 

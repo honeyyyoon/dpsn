@@ -142,6 +142,7 @@ function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
       </div>
 
       <button
+        aria-label="작업 메뉴 열기"
         onClick={(e) => { e.stopPropagation(); setMenuOpen(m => !m); }}
         style={{
           position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',

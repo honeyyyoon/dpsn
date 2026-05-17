@@ -453,7 +453,9 @@ export default function App() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fingerprint = file ? `${file.name}:${file.size}` : null;
-  const matchingJob = fingerprint ? (jobs.find(j => j.imageFingerprint === fingerprint) ?? null) : null;
+  const matchingJob = fingerprint
+    ? (jobs.find(j => j.imageFingerprint === fingerprint && j.status !== 'failed' && j.status !== 'cancelled') ?? null)
+    : null;
 
   const toggleModel = (id: number) =>
     setSelected((prev) => {
@@ -475,6 +477,8 @@ export default function App() {
     const isRunning = job.status === 'running' || job.status === 'pending';
     try { await deleteJob(jobId); } catch { /* 서버에 없어도 UI 반영 */ }
     if (isRunning) {
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      setRunning(false);
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'cancelled' } : j));
     } else {
       setJobs(prev => prev.filter(j => j.id !== jobId));
@@ -565,13 +569,20 @@ export default function App() {
     const existingIds = new Set(baseJob.modelIds);
     const newModelIds = [...selected].filter(id => !existingIds.has(id));
     if (newModelIds.length === 0) {
-      alert("이미 모두 실행된 모델입니다.");
+      const names = [...selected]
+        .map(id => MODELS.find(m => m.id === id)?.name)
+        .filter(Boolean)
+        .join(', ');
+      alert(`${names} 모델은 이미 실행되었습니다.`);
       return;
     }
     setRunning(true);
     setJobs((prev) => {
+      const current = prev.find(j => j.id === baseJob.id);
+      if (!current) return prev;
       const rest = prev.filter(j => j.id !== baseJob.id);
-      return [{ ...baseJob, status: "running" as const, modelIds: [...baseJob.modelIds, ...newModelIds] }, ...rest];
+      const mergedModelIds = [...new Set([...current.modelIds, ...newModelIds])];
+      return [{ ...current, status: "running" as const, modelIds: mergedModelIds }, ...rest];
     });
     setActiveJobId(baseJob.id);
     try {

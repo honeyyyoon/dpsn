@@ -384,7 +384,6 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
             src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
             mode="dim"
             chip="원본"
-            style={{ aspectRatio: "1 / 1" }}
           />
         </div>
         {sorted.map((m) => {
@@ -399,7 +398,6 @@ export function MultiDashboard({ models, results, srcImageId }: MultiDashboardPr
                 intensity={0.8}
                 chip={m.name}
                 chipColor={m.tint}
-                style={{ aspectRatio: "1 / 1" }}
               />
               <div
                 style={{

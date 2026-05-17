@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 interface TissueSvgProps {
@@ -87,18 +88,32 @@ interface WsiViewProps {
 
 export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intensity = 1,
                           showGrid = false, chip, chipColor, style, children }: WsiViewProps) {
+  const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
+
+  const aspectRatioStyle = src && detectedRatio
+    ? { aspectRatio: `${detectedRatio}` }
+    : { aspectRatio: '1 / 1' };
+
   return (
     <div style={{
       position: 'relative',
       background: '#0f1629',
       borderRadius: 'var(--r-md)',
       overflow: 'hidden',
-      aspectRatio: '1 / 1',
       minHeight: 0,
       ...style,
+      ...aspectRatioStyle,
     }}>
       {src
-        ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}/>
+        ? <img
+            src={src}
+            alt=""
+            onLoad={(e) => {
+              const { naturalWidth, naturalHeight } = e.currentTarget;
+              if (naturalWidth && naturalHeight) setDetectedRatio(naturalWidth / naturalHeight);
+            }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+          />
         : <TissueSvg seed={seed} mode={mode} tint={tint} intensity={intensity}/>
       }
       {showGrid && (

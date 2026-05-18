@@ -24,7 +24,7 @@ from ai.wsi.loader import load_patch, open_wsi_handle
 
 # Edit these before running.
 INPUT_WSI_PATH = Path("/mnt/Disk1/dpsn_datasets/camelyon16/normal_078.tif")
-OUTPUT_ZARR_PATH = Path("/mnt/Disk1/dpsn_datasets/inf_result_staingan/testresult_normal_078_2/test_normal_078.zarr")
+OUTPUT_ZARR_PATH = Path("/mnt/Disk1/dpsn_datasets/inf_result_stainswin/testresult_normal_078_2/test_normal_078.zarr")
 CHECKPOINT_PATH: Path | None = None
 
 

@@ -45,8 +45,12 @@ class SmokeTestWorker(Worker):
 
         config = StainSWINInferenceConfig(
             checkpoint_path=self.checkpoint_path,
+            device="cuda:1",
+            read_level=1,
+            batch_size=2,
             verbose=True,
         )
+
         log_path = self.output_zarr_path.parent / "smoke_test_swin.log"
         return StainSWINPipeline(self._build_logger(log_path), config=config)
 

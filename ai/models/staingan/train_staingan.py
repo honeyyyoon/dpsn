@@ -65,11 +65,13 @@ class StainGANTrainingConfig:
         return self.epochs_constant_lr + self.epochs_decay_lr
 
 
-def select_device(device: str) -> torch.device:
+def select_device(device: str, gpu_ids: tuple[int, ...]) -> torch.device:
     if device != "auto":
         return torch.device(device)
     if torch.cuda.is_available():
-        return torch.device("cuda:1")
+        if not gpu_ids:
+            raise ValueError("gpu_ids must not be empty when using auto CUDA selection.")
+        return torch.device(f"cuda:{gpu_ids[0]}")
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
@@ -212,9 +214,17 @@ def _train_discriminator(
 
 
 def train(config: StainGANTrainingConfig) -> Path:
-    device = select_device(config.device)
+    device = select_device(config.device, config.gpu_ids)
     dataloader = create_dataloader(config)
     g_a2b, g_b2a, d_a, d_b = create_models(config, device) # make two generators (A->B, B->A), and two discriminators
+
+    if device.type == "cuda":
+        print(
+            f"Using CUDA with DataParallel on gpu_ids={config.gpu_ids} "
+            f"(primary device: cuda:{config.gpu_ids[0]})"
+        )
+    else:
+        print(f"Using device: {device}")
 
     optimizer_g = Adam( # generator optimizer
         list(g_a2b.parameters()) + list(g_b2a.parameters()),

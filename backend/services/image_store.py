@@ -38,7 +38,7 @@ async def save_image(file: UploadFile) -> str:
 def make_thumbnail(row: dict) -> str:
     image_id = row['id']
     path: Path = DATA_DIR / row['path']
-    ext = path.suffix.lower
+    ext = path.suffix.lower()
     try:
         with Image.open(path) as img:
             img.thumbnail((1024, 1024))

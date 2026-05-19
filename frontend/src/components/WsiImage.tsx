@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 interface TissueSvgProps {
@@ -83,10 +84,13 @@ interface WsiViewProps {
   chipColor?: string;
   style?: CSSProperties;
   children?: ReactNode;
+  onRatioDetected?: (ratio: number) => void;
 }
 
 export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intensity = 1,
-                          showGrid = false, chip, chipColor, style, children }: WsiViewProps) {
+                          showGrid = false, chip, chipColor, style, children, onRatioDetected }: WsiViewProps) {
+  const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
+
   return (
     <div style={{
       position: 'relative',
@@ -96,9 +100,22 @@ export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intens
       aspectRatio: '1 / 1',
       minHeight: 0,
       ...style,
+      ...(src && detectedRatio ? { aspectRatio: `${detectedRatio}` } : {}),
     }}>
       {src
-        ? <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}/>
+        ? <img
+            src={src}
+            alt=""
+            onLoad={(e) => {
+              const { naturalWidth, naturalHeight } = e.currentTarget;
+              if (naturalWidth && naturalHeight) {
+                const ratio = naturalWidth / naturalHeight;
+                setDetectedRatio(ratio);
+                onRatioDetected?.(ratio);
+              }
+            }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+          />
         : <TissueSvg seed={seed} mode={mode} tint={tint} intensity={intensity}/>
       }
       {showGrid && (

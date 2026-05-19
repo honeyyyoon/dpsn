@@ -26,7 +26,7 @@ class InvalidPipelineResultError(WorkerError):
 
 PIPELINE_MAP: dict[int, str] = {
     1: "ai.pipelines.reinhard:Reinhard",
-    # 2: Macenko(),  
+    2: "ai.pipelines.macenko:Macenko",  
     # 3: Vahadane(),  
     4: "ai.pipelines.staingan:StainGANPipeline",  
     5: "ai.pipelines.stainnet:StainNetPipeline",
@@ -36,7 +36,7 @@ PIPELINE_MAP: dict[int, str] = {
 class Worker:
     """Simple runtime coordinator for one normalization task."""
 
-    def run(self, task: Task, emit_event=None) -> TaskResult:
+    def run(self, task: Task, emit_event) -> TaskResult:
         pipeline = self._create_pipeline(task.model_id)
         pipeline_result = pipeline.run(
             task.src_img_path, 
@@ -45,12 +45,15 @@ class Worker:
             {
                 "ssim": SSIM(),
                 "psnr": PSNR(),
-                "fid": FID(),
-            }
+                # "fid": FID(),
+            },
+            emit_event=emit_event
         )
-        # Metrics are still placeholder-level in the current project.
-        # TODO: ai/metrics/ 구현 후 실제 metrics 계산으로 교체
-        metrics = Metrics(ssim=0.95, psnr=32.4, fid=60)
+        metrics = Metrics(
+            ssim=pipeline_result.scores.get("ssim", 0.0), 
+            psnr=pipeline_result.scores.get("psnr", 0.0), 
+            fid=pipeline_result.scores.get("fid", 0.0)
+        )
 
         return TaskResult(
             result_img_path=pipeline_result.output_path,

@@ -1,7 +1,6 @@
 from collections import defaultdict
 import logging
 from pathlib import Path
-import shutil
 import time
 
 import numpy as np
@@ -14,7 +13,7 @@ from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
-from ai.wsi.loader import load_patches_from_image, load_patch, open_wsi_handle
+from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.writer import ZarrWSIWriter
 
 class Reinhard(ModelPipeline):
@@ -23,10 +22,10 @@ class Reinhard(ModelPipeline):
     def __init__(
         self, 
         logger: logging.Logger,
-        batch_size: int = 64,
-        patch_size: int = 256,
+        batch_size: int = 16,
+        patch_size: int = 64,
         max_sample_patches: int = 16,
-        max_iteration: int = 32
+        max_iteration: int = 128
     ):
         super().__init__(logger=logger)
         self.batch_size = int(batch_size)
@@ -39,7 +38,8 @@ class Reinhard(ModelPipeline):
         src_img_path: Path,
         result_path: Path, 
         target_img_path: Path | None,
-        metrics: dict[str, Metric]
+        metrics: dict[str, Metric],
+        emit_event=None
     ) -> PipelineResult:
         self.logger.info("Run Reinhard")
         
@@ -66,7 +66,7 @@ class Reinhard(ModelPipeline):
         src_thumb.save("result/source.png")
         target_thumb.save("result/target.png")
 
-        patch_sampler = PatchSampler()
+        patch_sampler = PatchSampler(strict_mpp_check=False)
 
         self.logger.info("Sample source image")
         src_ref_list = patch_sampler.sample(
@@ -126,9 +126,10 @@ class Reinhard(ModelPipeline):
         timer = defaultdict(float)
         scores = defaultdict(float)
 
-        iter = 0
-        for idx in tqdm(range(0, len(src_refs), self.batch_size)):
-            iter += 1
+        iter = len(range(0, len(src_refs), self.batch_size))
+        step = 0
+        for idx in range(0, len(src_refs), self.batch_size):
+            step += 1
             t0 = time.time()
             batch_ref = src_refs[idx:idx + self.batch_size]
             patches = [load_patch(ref) for ref in batch_ref]
@@ -148,6 +149,9 @@ class Reinhard(ModelPipeline):
             for i, ref in enumerate(batch_ref):
                 writer.write_patch(ref, new_patches[i].astype(np.uint8))
             timer['writer'] += time.time() - t0
+            if emit_event:
+                print(step, iter)
+                emit_event(status="running", progress=int(step / iter * 100), message=f"Processing {idx} ~ {idx + self.batch_size} / {len(src_refs)}")
 
         for key, score in scores.items():
             scores[key] /= iter
@@ -155,7 +159,7 @@ class Reinhard(ModelPipeline):
         
         self.logger.info("Finish normalize")
         self.logger.info(f"Elapsed time: load({timer['load']:.4f}s), transform({timer['transform']:.4f}s), writer({timer['writer']:.4f}s)")
-        self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
+        # self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
         
         output_path = writer.finalize()
         writer.close()
@@ -196,7 +200,10 @@ class Reinhard(ModelPipeline):
         src_means: np.ndarray,
         src_stds: np.ndarray, 
     ) -> np.ndarray:
-        image = image.transpose([0, 2, 3, 1])
+        if image.ndim != 4:
+            raise ValueError(f"Image should be 4D, but got {image.ndim}D")
+
+        image = image.transpose([0, 2, 3, 1]) # [B, H, W, C]
 
         lab = color.rgb2lab(image / 255.0)
         lab = (lab - src_means)/src_stds * target_stds + target_means

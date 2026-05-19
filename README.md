@@ -97,7 +97,7 @@ pip install -r requirements.txt
 
 ```bash
 source backend/venv/bin/activate
-PYTHONPATH=. uvicorn backend.main:app --reload
+PYTHONPATH=. uvicorn backend.main:app --reload --host 0.0.0.0
 ```
 
 ### API Endpoints
@@ -122,7 +122,7 @@ PYTHONPATH=. uvicorn backend.main:app --reload
 ```bash
 cd frontend
 yarn
-yarn dev   # http://localhost:5173
+yarn dev
 ```
 
 ### Build

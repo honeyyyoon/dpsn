@@ -26,6 +26,8 @@ PIPELINE_MAP: dict[int, str] = {
     2: "ai.pipelines.macenko:Macenko",  
     # 3: Vahadane(),  
     4: "ai.pipelines.staingan:StainGANPipeline",  
+    3: "ai.pipelines.vahadane:Vahadane",
+    # 4: StainGAN(),  
     5: "ai.pipelines.stainnet:StainNetPipeline",
     6: "ai.pipelines.stainswin:StainSWINPipeline",
 }

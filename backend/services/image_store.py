@@ -97,7 +97,7 @@ def get_image_path(image_id: str, thumbnail: bool = False) -> str:
     if int(row["has_thumbnail"]) == 0:
         thumbnail_path = make_thumbnail(row)
     else:
-        thumbnail_path = row['thumnail_path']
+        thumbnail_path = row['thumbnail_path']
     
     return str(DATA_DIR / thumbnail_path)
 

@@ -231,7 +231,7 @@ class Macenko(ModelPipeline):
                 emit_event(status="running", progress=int(step / iter * 100), message=f"Processing {idx} ~ {idx + self.batch_size} / {len(src_refs)}")
 
         output_path = writer.finalize()
-        writer.close()
+        # writer.close()
 
         return PipelineResult(
             output_path=output_path,

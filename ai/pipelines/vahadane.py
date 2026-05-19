@@ -271,7 +271,7 @@ class Vahadane(ModelPipeline):
         )
 
         output_path = writer.finalize()
-        writer.close()
+        # writer.close()
 
         return PipelineResult(
             output_path=output_path,

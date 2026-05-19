@@ -11,15 +11,15 @@ from typing import Any
 import numpy as np
 import torch
 
-from ai.metrics.base import Metric
-from ai.metrics.ssim import SSIM
+from ai.metrics.metric import Metric
 from ai.models.staingan.staingan_model import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
+from ai.samplers.patch_sampler import PatchSampler
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import MultiZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter, ZarrWSIWriter
 
 """
 What it returns through writer.py:
@@ -74,9 +74,20 @@ class StainGANPipeline(ModelPipeline):
     def run(
         self,
         src_img_path: Path,
+        result_path: Path,
         target_img_path: Path | None = None,
-        metrics: dict[str, Metric] | None = None,
+        metrics: list[str] = [],
+        emit_event = None
     ) -> PipelineResult:
+
+        tgt_images = None
+        if "fid" in metrics:
+            if target_img_path is None:
+                raise ValueError("FID needs target image")
+            tgt_wsi_handle = open_wsi_handle(target_img_path)
+            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
+            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+
         del target_img_path
 
         src_wsi_handle = open_wsi_handle(src_img_path) #open source img using wsi handle
@@ -89,7 +100,7 @@ class StainGANPipeline(ModelPipeline):
         read_w, read_h = src_wsi_handle.level_dimensions[self.config.read_level]
         level_downsample = float(src_wsi_handle.level_downsamples[self.config.read_level])
         refs = self.grid_sampler.sample(src_wsi_handle) #patch(?) reference
-        output_path = self._build_output_path(src_img_path)
+        # output_path = self._build_output_path(src_img_path)
         total_refs = len(refs)
         total_batches = (total_refs + self.config.batch_size - 1) // self.config.batch_size
 
@@ -97,31 +108,40 @@ class StainGANPipeline(ModelPipeline):
         self._log_run_summary(
             src_img_path=src_img_path,
             checkpoint_path=checkpoint_path,
-            output_path=output_path,
+            output_path=result_path,
             wsi_handle=src_wsi_handle,
             total_refs=total_refs,
             total_batches=total_batches,
         )
 
-        writer = MultiZarrWSIWriter(
-            output_path=output_path,
+        # writer = MultiZarrWSIWriter(
+        #     output_path=result_path,
+        #     width=read_w,
+        #     height=read_h,
+        #     level_downsample=level_downsample,
+        #     channels=3,
+        #     tile_size=self.config.tile_size,
+        #     overwrite=True,
+        #     pyramid_levels=self.config.pyramid_levels,
+        # )
+        writer = ZarrWSIWriter(
+            output_path=result_path,
             width=read_w,
             height=read_h,
             level_downsample=level_downsample,
             channels=3,
             tile_size=self.config.tile_size,
             overwrite=True,
-            pyramid_levels=self.config.pyramid_levels,
         )
 
         #Metric Calculation
         run_start = time.time()
-        scores = dict.fromkeys(metrics.keys() if metrics is not None else [], 0.0)
-        if self.config.compute_ssim and "ssim" not in scores:
-            scores["ssim"] = 0.0
-        metric_objects = dict(metrics or {})
-        if self.config.compute_ssim and "ssim" not in metric_objects:
-            metric_objects["ssim"] = SSIM()
+        metric = Metric(
+            use_ssim = "ssim" in metrics,
+            use_psnr = "psnr" in metrics,
+            use_fid = "fid" in metrics,
+            target_patch = tgt_images
+        )
 
         for start in range(0, len(refs), self.config.batch_size):
             batch_refs = refs[start:start + self.config.batch_size]
@@ -130,8 +150,7 @@ class StainGANPipeline(ModelPipeline):
             batch_input = np.stack(batch_patches, axis=0)
             batch_output = np.stack(normalized_batch, axis=0)
 
-            for key, metric in metric_objects.items():
-                scores[key] += metric.evaluate(batch_input, batch_output)
+            metric.evaluate(batch_input, batch_output)
 
             for ref, normalized_patch in zip(batch_refs, normalized_batch):
                 writer.write_patch(ref, normalized_patch)
@@ -156,9 +175,7 @@ class StainGANPipeline(ModelPipeline):
         self._log("Finalizing MultiZarr writer and writing thumbnail...")
         final_output_path = writer.finalize()
         total_elapsed = time.time() - run_start
-        normalized_scores = {
-            key: value / max(total_batches, 1) for key, value in scores.items()
-        }
+        normalized_scores = metric.finalize()
 
         self._log(
             f"Finished inference in {total_elapsed:.1f}s. "
@@ -168,9 +185,9 @@ class StainGANPipeline(ModelPipeline):
         for key, value in normalized_scores.items():
             self._log(f"{key.upper()}: {value:.6f}")
         return PipelineResult(
-            output_path=str(final_output_path),
+            output_path=final_output_path,
             scores=normalized_scores,
-            thumbnail_path=str(writer.thumbnail_path),
+            thumbnail_path=final_output_path,
         )
 
     def _validate_config(self) -> None:

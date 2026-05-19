@@ -188,7 +188,7 @@ class StainNetPipeline(ModelPipeline):
         return PipelineResult(
             output_path=final_output_path,
             scores=normalized_scores,
-            thumbnail_path=None,
+            thumbnail_path=final_output_path,
         )
 
     def _validate_config(self) -> None:

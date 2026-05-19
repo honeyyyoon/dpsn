@@ -21,10 +21,10 @@ class Reinhard(ModelPipeline):
     def __init__(
         self, 
         logger: logging.Logger,
-        batch_size: int = 16,
+        batch_size: int = 64,
         patch_size: int = 64,
         max_sample_patches: int = 16,
-        max_iteration: int = 128
+        max_iteration: int = 8
     ):
         super().__init__(logger=logger)
         self.batch_size = int(batch_size)
@@ -62,8 +62,8 @@ class Reinhard(ModelPipeline):
         src_thumb = Image.fromarray(load_patch(src_thumb_ref).img.transpose([1, 2, 0]))
         target_thumb = Image.fromarray(load_patch(target_thumb_ref).img.transpose([1, 2, 0]))
         
-        src_thumb.save("result/source.png")
-        target_thumb.save("result/target.png")
+        # src_thumb.save("result/source.png")
+        # target_thumb.save("result/target.png")
 
         patch_sampler = PatchSampler(strict_mpp_check=False)
 
@@ -161,7 +161,7 @@ class Reinhard(ModelPipeline):
         # self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
         
         output_path = writer.finalize()
-        writer.close()
+        # writer.close()
         # self.logger.info(f"Save Normalized Image: {image.width} x {image.height}")
         
 

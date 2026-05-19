@@ -6,7 +6,7 @@ import time
 import numpy as np
 from tqdm import  tqdm
 
-from ai.metrics.base import Metric
+from ai.metrics.metric import Metric
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
@@ -32,9 +32,7 @@ class MacenkoNormalizer:
         self.target_stain_matrix: np.ndarray | None = None
         self.target_max_conc: np.ndarray | None = None
 
-    def fit(self, source_patches: list[np.ndarray], target_patches: list[np.ndarray]) -> None:
-        source_rgb = self._concat_patches(source_patches)
-        target_rgb = self._concat_patches(target_patches)
+    def fit(self, source_rgb: np.ndarray, target_rgb: np.ndarray) -> None:
 
         self.source_stain_matrix = self._estimate_stain_matrix(source_rgb)
         source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
@@ -142,7 +140,7 @@ class Macenko(ModelPipeline):
         src_img_path: Path,
         result_path: Path,
         target_img_path: Path | None,
-        metrics: dict[str, Metric],
+        metrics: list[str],
         emit_event=None
     ) -> PipelineResult:
 
@@ -169,15 +167,22 @@ class Macenko(ModelPipeline):
             save_debug=False,
         )
 
-        source_patches = [
-            load_patch(ref).img.transpose(1, 2, 0)
+        source_patches = np.stack([
+            load_patch(ref).img
             for ref in source_refs
-        ]
+        ]).transpose([0, 2, 3, 1])
 
-        target_patches = [
-            load_patch(ref).img.transpose(1, 2, 0)
+        target_patches = np.stack([
+            load_patch(ref).img
             for ref in target_refs
-        ]
+        ])
+        metric = Metric(
+            use_ssim = "ssim" in metrics,
+            use_psnr = "psnr" in metrics,
+            use_fid = "fid" in metrics,
+            target_patch = target_patches
+        )
+        target_patches = target_patches.transpose([0, 2, 3, 1])
 
         macenko.fit(source_patches, target_patches)
 
@@ -193,7 +198,6 @@ class Macenko(ModelPipeline):
         )
 
         timer = defaultdict(float)
-        scores = defaultdict(float)
         self.batch_size = 64
 
         iter = len(range(0, len(src_refs), self.batch_size))
@@ -215,26 +219,22 @@ class Macenko(ModelPipeline):
             new_patches = np.stack(new_patches, axis=0)
 
             t0 = time.time()
-            for key, metric in metrics.items():
-                scores[key] += metric.evaluate(patches, new_patches)
+            metric.evaluate(patches, new_patches)
 
             t0 = time.time()
             for i, ref in enumerate(batch_ref):
                 writer.write_patch(ref, new_patches[i].astype(np.uint8))
             timer['writer'] += time.time() - t0
+
             if emit_event:
                 print(step, iter)
                 emit_event(status="running", progress=int(step / iter * 100), message=f"Processing {idx} ~ {idx + self.batch_size} / {len(src_refs)}")
 
-        for key, score in scores.items():
-            scores[key] /= iter
-        scores = dict(scores)
-
         output_path = writer.finalize()
-        writer.close()
+        # writer.close()
 
         return PipelineResult(
             output_path=output_path,
-            scores=scores,
+            scores=metric.finalize(),
             thumbnail_path=output_path,
         )

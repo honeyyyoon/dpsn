@@ -5,9 +5,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ai.metrics.ssim import SSIM
-from ai.metrics.psnr import PSNR
-from ai.metrics.fid import FID
 from ai.pipelines.base import ModelPipeline
 from ai.runtime.task import Metrics, Task, TaskResult
 
@@ -29,6 +26,8 @@ PIPELINE_MAP: dict[int, str] = {
     2: "ai.pipelines.macenko:Macenko",  
     # 3: Vahadane(),  
     4: "ai.pipelines.staingan:StainGANPipeline",  
+    3: "ai.pipelines.vahadane:Vahadane",
+    # 4: StainGAN(),  
     5: "ai.pipelines.stainnet:StainNetPipeline",
     6: "ai.pipelines.stainswin:StainSWINPipeline",
 }
@@ -42,11 +41,7 @@ class Worker:
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            {
-                "ssim": SSIM(),
-                "psnr": PSNR(),
-                # "fid": FID(),
-            },
+            ["ssim", "psnr", "fid"],
             emit_event=emit_event
         )
         metrics = Metrics(

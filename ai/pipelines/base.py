@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
 
-from ai.metrics.base import Metric
 from ai.pipelines.result import PipelineResult
 
 class ModelPipeline(ABC):
@@ -17,6 +16,6 @@ class ModelPipeline(ABC):
         src_img_path: Path,
         result_path: Path,
         target_img_path: Path | None,
-        metrics: dict[str, Metric],
+        metrics: list[str],
         emit_event=None
     ) -> PipelineResult: ...

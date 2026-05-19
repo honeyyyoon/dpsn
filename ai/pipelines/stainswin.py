@@ -11,12 +11,12 @@ from typing import Any
 import numpy as np
 import torch
 
-from ai.metrics.base import Metric
-from ai.metrics.ssim import SSIM
+from ai.metrics.metric import Metric
 from ai.models.stainswin.stainswin_model import StainSWIN as StainSWINModel
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
+from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.writer import ZarrWSIWriter
@@ -82,8 +82,17 @@ class StainSWINPipeline(ModelPipeline):
         src_img_path: Path,
         result_path: Path,
         target_img_path: Path | None = None,
-        metrics: dict[str, Metric] | None = None,
+        metrics: list[str] = [],
+        emit_event = None
     ) -> PipelineResult:
+        
+        tgt_images = None
+        if "fid" in metrics:
+            if target_img_path is None:
+                raise ValueError("FID needs target image")
+            tgt_wsi_handle = open_wsi_handle(target_img_path)
+            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
+            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
         del target_img_path
 
         src_wsi_handle = open_wsi_handle(src_img_path)
@@ -128,12 +137,12 @@ class StainSWINPipeline(ModelPipeline):
         )
 
         run_start = time.time()
-        scores = dict.fromkeys(metrics.keys() if metrics is not None else [], 0.0)
-        if self.config.compute_ssim and "ssim" not in scores:
-            scores["ssim"] = 0.0
-        metric_objects = dict(metrics or {})
-        if self.config.compute_ssim and "ssim" not in metric_objects:
-            metric_objects["ssim"] = SSIM()
+        metric = Metric(
+            use_ssim = "ssim" in metrics,
+            use_psnr = "psnr" in metrics,
+            use_fid = "fid" in metrics,
+            target_patch = tgt_images
+        )
 
         for start in range(0, len(refs), self.config.batch_size):
             batch_refs = refs[start:start + self.config.batch_size]
@@ -142,8 +151,7 @@ class StainSWINPipeline(ModelPipeline):
             batch_input = np.stack(batch_patches, axis=0)
             batch_output = np.stack(normalized_batch, axis=0)
 
-            for key, metric in metric_objects.items():
-                scores[key] += metric.evaluate(batch_input, batch_output)
+            metric.evaluate(batch_input, batch_output)
 
             for ref, normalized_patch in zip(batch_refs, normalized_batch):
                 writer.write_patch(ref, normalized_patch)
@@ -174,9 +182,7 @@ class StainSWINPipeline(ModelPipeline):
         final_output_path = writer.finalize()
         writer.close()
         total_elapsed = time.time() - run_start
-        normalized_scores = {
-            key: value / max(total_batches, 1) for key, value in scores.items()
-        }
+        normalized_scores = metric.finalize()
 
         self._log(
             f"Finished inference in {total_elapsed:.1f}s. "
@@ -188,7 +194,7 @@ class StainSWINPipeline(ModelPipeline):
         return PipelineResult(
             output_path=final_output_path,
             scores=normalized_scores,
-            thumbnail_path=None,
+            thumbnail_path=final_output_path,
         )
 
     def _validate_config(self) -> None:

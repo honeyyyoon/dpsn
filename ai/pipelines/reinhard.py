@@ -6,9 +6,8 @@ import time
 import numpy as np
 from PIL import Image
 from skimage import color
-from tqdm import tqdm
 
-from ai.metrics.base import Metric
+from ai.metrics.metric import Metric
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
@@ -22,10 +21,10 @@ class Reinhard(ModelPipeline):
     def __init__(
         self, 
         logger: logging.Logger,
-        batch_size: int = 16,
+        batch_size: int = 64,
         patch_size: int = 64,
         max_sample_patches: int = 16,
-        max_iteration: int = 128
+        max_iteration: int = 8
     ):
         super().__init__(logger=logger)
         self.batch_size = int(batch_size)
@@ -38,7 +37,7 @@ class Reinhard(ModelPipeline):
         src_img_path: Path,
         result_path: Path, 
         target_img_path: Path | None,
-        metrics: dict[str, Metric],
+        metrics: list[str],
         emit_event=None
     ) -> PipelineResult:
         self.logger.info("Run Reinhard")
@@ -63,8 +62,8 @@ class Reinhard(ModelPipeline):
         src_thumb = Image.fromarray(load_patch(src_thumb_ref).img.transpose([1, 2, 0]))
         target_thumb = Image.fromarray(load_patch(target_thumb_ref).img.transpose([1, 2, 0]))
         
-        src_thumb.save("result/source.png")
-        target_thumb.save("result/target.png")
+        # src_thumb.save("result/source.png")
+        # target_thumb.save("result/target.png")
 
         patch_sampler = PatchSampler(strict_mpp_check=False)
 
@@ -108,7 +107,7 @@ class Reinhard(ModelPipeline):
         
         if expected_iteration > self.max_iteration:
             ValueError(f"Image is too big! Expected iteration: {expected_iteration}, Max iteration: {self.max_iteration}")
-        
+
         self.logger.info(f"Grid Sample from Source Image: patch_size={self.patch_size}, read_level={level}, downsamples={src_wsi_handle.level_downsamples[level]}")
         grid_sampler = GridSampler(patch_size=self.patch_size, read_level=level)
 
@@ -124,7 +123,12 @@ class Reinhard(ModelPipeline):
         )
 
         timer = defaultdict(float)
-        scores = defaultdict(float)
+        metric = Metric(
+            use_ssim = "ssim" in metrics,
+            use_psnr = "psnr" in metrics,
+            use_fid = "fid" in metrics,
+            target_patch = tgt_images
+        )
 
         iter = len(range(0, len(src_refs), self.batch_size))
         step = 0
@@ -142,8 +146,7 @@ class Reinhard(ModelPipeline):
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
-            for key, metric in metrics.items():
-                scores[key] += metric.evaluate(patches, new_patches)
+            metric.evaluate(patches, new_patches)
 
             t0 = time.time()
             for i, ref in enumerate(batch_ref):
@@ -152,23 +155,19 @@ class Reinhard(ModelPipeline):
             if emit_event:
                 print(step, iter)
                 emit_event(status="running", progress=int(step / iter * 100), message=f"Processing {idx} ~ {idx + self.batch_size} / {len(src_refs)}")
-
-        for key, score in scores.items():
-            scores[key] /= iter
-        scores = dict(scores)
         
         self.logger.info("Finish normalize")
         self.logger.info(f"Elapsed time: load({timer['load']:.4f}s), transform({timer['transform']:.4f}s), writer({timer['writer']:.4f}s)")
         # self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
         
         output_path = writer.finalize()
-        writer.close()
+        # writer.close()
         # self.logger.info(f"Save Normalized Image: {image.width} x {image.height}")
         
 
         return PipelineResult(
             output_path=output_path,
-            scores=scores,
+            scores=metric.finalize(),
             thumbnail_path=output_path,
         )
         

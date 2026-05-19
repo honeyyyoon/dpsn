@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 import shutil
+import uuid
 
 import numpy as np
 from PIL import Image
@@ -24,7 +25,7 @@ class PatchWriter(ABC):
 
 
 class ZarrWSIWriter(PatchWriter):
-    """Single-level Zarr writer with PNG thumbnail extraction."""
+    """Optional writer that keeps the staged output as Zarr only."""
 
     def __init__(
         self,
@@ -46,34 +47,22 @@ class ZarrWSIWriter(PatchWriter):
             raise ValueError(
                 f"level_downsample must be > 0, got {level_downsample}"
             )
-        self.output_path = Path(output_path)
+        self.temp_id = str(uuid.uuid4())
+
+        self.output_path = Path(output_path) / self.temp_id
         self.width = int(width)
         self.height = int(height)
         self.channels = int(channels)
         self.tile_size = int(tile_size)
         self.level_downsample = float(level_downsample)
-        self.thumbnail_path = self.output_path.parent / "out_image.png"
+        self.thumbnail_path = Path(output_path) / f"{self.temp_id}.png"
         self.thumbnail_max_size = int(2048)
 
         if self.output_path.exists() and overwrite:
             shutil.rmtree(self.output_path)
 
-        self.root = zarr.open_group(str(self.output_path), mode="w")
-        self.image = self._create_zarr_array(
-            root=self.root,
-            name="image",
-            shape=(self.height, self.width, self.channels),
-        )
-        self.root.attrs.update(
-            {
-                "writer_type": "zarr",
-                "width": self.width,
-                "height": self.height,
-                "channels": self.channels,
-                "tile_size": self.tile_size,
-                "level_downsample": self.level_downsample,
-            }
-        )
+        self.root = zarr.open_group(str(self.output_path / "temp"), mode="w")
+        self.image = self._create_zarr_image(self.root)
 
     def write_patch(self, ref: PatchRef, img: np.ndarray) -> None:
         x1 = int(round(ref.x / self.level_downsample))
@@ -94,12 +83,10 @@ class ZarrWSIWriter(PatchWriter):
 
     def finalize(self) -> Path:
         self._write_thumbnail()
-        return self.output_path
-
-    def close(self) -> None:
-        # Kept for pipeline compatibility. The finalized Zarr output should
-        # remain on disk, so this is intentionally a no-op.
-        return None
+        return self.thumbnail_path
+    
+    def close(self):
+        shutil.rmtree(self.output_path)
     
     def _write_thumbnail(self) -> Path:
         if self.thumbnail_path is None:
@@ -134,10 +121,10 @@ class ZarrWSIWriter(PatchWriter):
 
         return np.transpose(img, (1, 2, 0))
 
-    def _create_zarr_array(self, root, name: str, shape: tuple[int, int, int]):
+    def _create_zarr_image(self, root):
         kwargs = {
-            "name": name,
-            "shape": shape,
+            "name": "image",
+            "shape": (self.height, self.width, self.channels),
             "chunks": (self.tile_size, self.tile_size, self.channels),
             "dtype": np.uint8,
             "fill_value": 0,
@@ -149,7 +136,6 @@ class ZarrWSIWriter(PatchWriter):
         raise AttributeError(
             "Zarr group does not support create_array or create_dataset."
         )
-
 
 class MultiZarrWSIWriter(PatchWriter):
     """

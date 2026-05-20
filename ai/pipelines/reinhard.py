@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 
 import numpy as np
-from skimage import color
+import torch
 
 from ai.metrics.metric import Metric
 from ai.pipelines.base import ModelPipeline
@@ -19,8 +19,8 @@ from ai.wsi.writer import ZarrWSIWriter
 
 @dataclass(frozen=True)
 class ReinhardStats:
-    means: np.ndarray
-    stds: np.ndarray
+    means: torch.Tensor
+    stds: torch.Tensor
 
 
 class Reinhard(ModelPipeline):
@@ -32,13 +32,19 @@ class Reinhard(ModelPipeline):
         batch_size: int = 64,
         patch_size: int = 256,
         max_sample_patches: int = 16,
-        max_iteration: int = 16
+        max_iteration: int = 128,
+        device: str | torch.device | None = None,
     ):
         super().__init__(logger=logger)
         self.batch_size = int(batch_size)
         self.patch_size = int(patch_size)
         self.max_sample_patches = int(max_sample_patches)
         self.max_iteration = int(max_iteration)
+        self.device = self._select_device(device)
+        self._color_constants_cache: dict[
+            tuple[torch.device, torch.dtype],
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+        ] = {}
         self._validate_config()
 
     def run(
@@ -50,6 +56,7 @@ class Reinhard(ModelPipeline):
         emit_event=None
     ) -> PipelineResult:
         self.logger.info("Run Reinhard")
+        self.logger.info(f"Use Reinhard device: {self.device}")
         
         if target_img_path is None:
             raise ValueError("Reinhard needs a target image.")
@@ -122,6 +129,17 @@ class Reinhard(ModelPipeline):
         if self.max_iteration <= 0:
             raise ValueError(f"max_iteration must be > 0, got {self.max_iteration}")
 
+    def _select_device(self, device: str | torch.device | None) -> torch.device:
+        if device is not None:
+            return torch.device(device)
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            return torch.device("mps")
+
+        return torch.device("cpu")
+
     def _log_wsi_info(self, label: str, wsi_handle) -> None:
         self.logger.info(f"Read {label} image")
         self.logger.info(f"Size: {wsi_handle.dim[0]} x {wsi_handle.dim[1]}")
@@ -148,13 +166,15 @@ class Reinhard(ModelPipeline):
 
     def _fit_stats(self, images: np.ndarray, label: str) -> ReinhardStats:
         self.logger.info(f"Get {label} Reinhard Stats")
-        means, stds = self.get_reinhard_stats(images)
+        stats = self._get_reinhard_stats_tensor(self._to_chw_float_tensor(images))
+        means = stats.means.detach().cpu().numpy()
+        stds = stats.stds.detach().cpu().numpy()
         self.logger.info(
             f"{label.capitalize()} stat: "
             f"means={means.round(2)}, stds={stds.round(2)}"
         )
 
-        return ReinhardStats(means=means, stds=stds)
+        return stats
 
     def _build_metric(self, metrics: list[str], target_images: np.ndarray) -> Metric:
         return Metric(
@@ -231,11 +251,13 @@ class Reinhard(ModelPipeline):
             timer['load'] += time.time() - t0
 
             t0 = time.time()
-            new_patches = self._transform_with_stats(
-                patches,
+            patch_tensor = self._to_chw_float_tensor(patches)
+            new_patch_tensor = self._transform_with_stats_tensor(
+                patch_tensor,
                 source_stats=source_stats,
                 target_stats=target_stats,
             )
+            new_patches = self._to_chw_uint8_numpy(new_patch_tensor)
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
@@ -266,28 +288,40 @@ class Reinhard(ModelPipeline):
             means: [L_mean, a_mean, b_mean]
             stds:  [L_std,  a_std,  b_std]
         """
-        image = self._to_hwc_batch(image)
+        stats = self._get_reinhard_stats_tensor(self._to_chw_float_tensor(image))
 
-        lab = color.rgb2lab(image / 255.0)  # L: [0,100], a/b: roughly [-128,127]
+        return (
+            stats.means.detach().cpu().numpy(),
+            stats.stds.detach().cpu().numpy(),
+        )
 
-        means = lab.reshape(-1, 3).mean(axis=0)
-        stds = lab.reshape(-1, 3).std(axis=0)
+    def _get_reinhard_stats_tensor(self, image: torch.Tensor) -> ReinhardStats:
+        lab = self._rgb_to_lab(image)
+        flattened = lab.reshape(-1, 3)
 
-        return means, stds
+        return ReinhardStats(
+            means=flattened.mean(dim=0),
+            stds=flattened.std(dim=0, unbiased=False),
+        )
 
-    def _transform_with_stats(
+    def _transform_with_stats_tensor(
         self,
-        image: np.ndarray,
+        image: torch.Tensor,
         source_stats: ReinhardStats,
         target_stats: ReinhardStats,
-    ) -> np.ndarray:
-        return self.transform_image(
-            image,
-            target_means=target_stats.means,
-            target_stds=target_stats.stds,
-            src_means=source_stats.means,
-            src_stds=source_stats.stds,
+    ) -> torch.Tensor:
+        lab = self._rgb_to_lab(image)
+        lab = (
+            (lab - source_stats.means)
+            / self._safe_stds(source_stats.stds)
+            * target_stats.stds
+            + target_stats.means
         )
+
+        lab[..., 0] = lab[..., 0].clamp(0, 100)
+        lab[..., 1:] = lab[..., 1:].clamp(-128, 127)
+
+        return self._lab_to_rgb(lab)
     
     def transform_image(
         self, 
@@ -297,24 +331,25 @@ class Reinhard(ModelPipeline):
         src_means: np.ndarray,
         src_stds: np.ndarray, 
     ) -> np.ndarray:
-        image = self._to_hwc_batch(image)
-        target_means = self._validate_stats_vector(target_means, "target_means")
-        target_stds = self._validate_stats_vector(target_stds, "target_stds")
-        src_means = self._validate_stats_vector(src_means, "src_means")
-        src_stds = self._validate_stats_vector(src_stds, "src_stds")
+        image = self._to_chw_float_tensor(image)
+        source_stats = ReinhardStats(
+            means=self._stats_tensor(src_means, "src_means"),
+            stds=self._stats_tensor(src_stds, "src_stds"),
+        )
+        target_stats = ReinhardStats(
+            means=self._stats_tensor(target_means, "target_means"),
+            stds=self._stats_tensor(target_stds, "target_stds"),
+        )
 
-        lab = color.rgb2lab(image / 255.0)
-        lab = (lab - src_means) / self._safe_stds(src_stds) * target_stds + target_means
-        
-        lab[..., 0] = np.clip(lab[..., 0], 0, 100)
-        lab[..., 1:] = np.clip(lab[..., 1:], -128, 127)
+        output = self._transform_with_stats_tensor(
+            image,
+            source_stats=source_stats,
+            target_stats=target_stats,
+        )
 
-        image = np.clip(color.lab2rgb(lab) * 255.0, 0, 255)
-        image = image.transpose([0, 3, 1, 2])
+        return output.detach().cpu().numpy()
 
-        return image
-
-    def _to_hwc_batch(self, image: np.ndarray) -> np.ndarray:
+    def _to_chw_float_tensor(self, image: np.ndarray) -> torch.Tensor:
         if image.ndim == 3:
             image = image[np.newaxis, ...]
         if image.ndim != 4:
@@ -322,14 +357,125 @@ class Reinhard(ModelPipeline):
         if image.shape[1] != 3:
             raise ValueError(f"Image should have 3 channels in CHW format, got {image.shape}")
 
-        return image.transpose([0, 2, 3, 1])
+        should_scale = np.issubdtype(image.dtype, np.integer) or image.max() > 1.0
+        tensor = torch.from_numpy(np.ascontiguousarray(image)).to(
+            device=self.device,
+            dtype=torch.float32,
+        )
+        if should_scale:
+            tensor = tensor / 255.0
 
-    def _validate_stats_vector(self, value: np.ndarray, name: str) -> np.ndarray:
-        value = np.asarray(value, dtype=np.float64)
-        if value.shape != (3,):
-            raise ValueError(f"{name} should have shape (3,), got {value.shape}")
+        return tensor
 
-        return value
+    def _stats_tensor(self, value: np.ndarray | torch.Tensor, name: str) -> torch.Tensor:
+        tensor = torch.as_tensor(value, device=self.device, dtype=torch.float32)
+        if tensor.shape != (3,):
+            raise ValueError(f"{name} should have shape (3,), got {tuple(tensor.shape)}")
 
-    def _safe_stds(self, stds: np.ndarray) -> np.ndarray:
-        return np.where(stds == 0, 1.0, stds)
+        return tensor
+
+    def _safe_stds(self, stds: torch.Tensor) -> torch.Tensor:
+        return torch.where(stds.abs() < 1e-6, torch.ones_like(stds), stds)
+
+    def _to_chw_uint8_numpy(self, image: torch.Tensor) -> np.ndarray:
+        return (
+            image.round()
+            .clamp(0, 255)
+            .to(dtype=torch.uint8)
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
+    def _color_constants(
+        self,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        key = (device, dtype)
+        if key not in self._color_constants_cache:
+            rgb_to_xyz = torch.tensor(
+                [
+                    [0.4124564, 0.3575761, 0.1804375],
+                    [0.2126729, 0.7151522, 0.0721750],
+                    [0.0193339, 0.1191920, 0.9503041],
+                ],
+                device=device,
+                dtype=dtype,
+            )
+            xyz_to_rgb = torch.tensor(
+                [
+                    [3.2404542, -1.5371385, -0.4985314],
+                    [-0.9692660, 1.8760108, 0.0415560],
+                    [0.0556434, -0.2040259, 1.0572252],
+                ],
+                device=device,
+                dtype=dtype,
+            )
+            white_point = torch.tensor(
+                [0.95047, 1.0, 1.08883],
+                device=device,
+                dtype=dtype,
+            )
+            self._color_constants_cache[key] = (
+                rgb_to_xyz,
+                xyz_to_rgb,
+                white_point,
+            )
+
+        return self._color_constants_cache[key]
+
+    def _rgb_to_lab(self, image: torch.Tensor) -> torch.Tensor:
+        rgb = image.clamp(0, 1)
+        linear_rgb = torch.where(
+            rgb > 0.04045,
+            torch.pow((rgb + 0.055) / 1.055, 2.4),
+            rgb / 12.92,
+        )
+
+        rgb_to_xyz, _, white_point = self._color_constants(image.device, image.dtype)
+        xyz = torch.matmul(linear_rgb.permute(0, 2, 3, 1), rgb_to_xyz.T)
+        xyz = xyz / white_point
+
+        delta = 6.0 / 29.0
+        xyz_f = torch.where(
+            xyz > delta ** 3,
+            torch.pow(xyz, 1.0 / 3.0),
+            xyz / (3 * delta ** 2) + 4.0 / 29.0,
+        )
+
+        x, y, z = xyz_f.unbind(dim=-1)
+
+        return torch.stack(
+            [
+                116.0 * y - 16.0,
+                500.0 * (x - y),
+                200.0 * (y - z),
+            ],
+            dim=-1,
+        )
+
+    def _lab_to_rgb(self, lab: torch.Tensor) -> torch.Tensor:
+        l_channel, a_channel, b_channel = lab.unbind(dim=-1)
+        fy = (l_channel + 16.0) / 116.0
+        fx = fy + a_channel / 500.0
+        fz = fy - b_channel / 200.0
+
+        delta = 6.0 / 29.0
+        fxyz = torch.stack([fx, fy, fz], dim=-1)
+        xyz = torch.where(
+            fxyz > delta,
+            torch.pow(fxyz, 3.0),
+            3 * delta ** 2 * (fxyz - 4.0 / 29.0),
+        )
+        _, xyz_to_rgb, white_point = self._color_constants(lab.device, lab.dtype)
+        xyz = xyz * white_point
+        linear_rgb = torch.matmul(xyz, xyz_to_rgb.T)
+
+        rgb = torch.where(
+            linear_rgb > 0.0031308,
+            1.055 * torch.pow(linear_rgb.clamp_min(0), 1.0 / 2.4) - 0.055,
+            12.92 * linear_rgb,
+        )
+
+        return rgb.clamp(0, 1).permute(0, 3, 1, 2) * 255.0

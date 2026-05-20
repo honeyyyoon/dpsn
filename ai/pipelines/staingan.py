@@ -163,7 +163,7 @@ class StainGANPipeline(ModelPipeline):
                     f"({processed}/{total_refs} patches, {rate:.2f} patches/s, eta {eta_text})"
                 )
 
-        self._log("Finalizing MultiZarr writer and writing thumbnail...")
+        self._log("Finalizing MultiZarr writer and writing WSI TIFF...")
         final_output_path = writer.finalize()
         writer.close()
         total_elapsed = time.time() - run_start

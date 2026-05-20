@@ -18,7 +18,7 @@ from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import ZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter
 
 # class that stores all settings needed for StainNet WSI inference
 @dataclass(slots=True)
@@ -121,7 +121,7 @@ class StainNetPipeline(ModelPipeline):
             f"batch_size={self.config.batch_size}, total_batches={total_batches}"
         )
 
-        writer = ZarrWSIWriter(
+        writer = MultiZarrWSIWriter(
             output_path=result_path,
             width=read_w,
             height=read_h,
@@ -172,7 +172,7 @@ class StainNetPipeline(ModelPipeline):
                     f"{rate:.2f} patches/s, eta {eta_text})"
                 )
 
-        self._log("Finalizing Zarr writer and writing thumbnail...")
+        self._log("Finalizing MultiZarr writer and writing WSI TIFF...")
         final_output_path = writer.finalize()
         writer.close()
         total_elapsed = time.time() - run_start
@@ -182,13 +182,13 @@ class StainNetPipeline(ModelPipeline):
             f"Finished inference in {total_elapsed:.1f}s. "
             f"Output written to {final_output_path}"
         )
-        self._log(f"Thumbnail written to {writer.thumbnail_path}")
+        self._log(f"WSI TIFF written to {writer.wsi_path}")
         for key, value in normalized_scores.items():
             self._log(f"{key.upper()}: {value:.6f}")
         return PipelineResult(
             output_path=final_output_path,
             scores=normalized_scores,
-            thumbnail_path=final_output_path,
+            thumbnail_path=None,
         )
 
     def _validate_config(self) -> None:

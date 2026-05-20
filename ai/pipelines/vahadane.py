@@ -12,7 +12,7 @@ from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import ZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter
 
 
 class VahadaneNormalizer:
@@ -221,7 +221,7 @@ class Vahadane(ModelPipeline):
         grid_sampler = GridSampler(patch_size=self.patch_size, read_level=0)
         src_refs = grid_sampler.sample(src_wsi_handle)
 
-        writer = ZarrWSIWriter(
+        writer = MultiZarrWSIWriter(
             result_path,
             src_wsi_handle.level_dimensions[0][0],
             src_wsi_handle.level_dimensions[0][1],
@@ -271,10 +271,10 @@ class Vahadane(ModelPipeline):
         )
 
         output_path = writer.finalize()
-        # writer.close()
+        writer.close()
 
         return PipelineResult(
             output_path=output_path,
             scores=metric.finalize(),
-            thumbnail_path=output_path,
+            thumbnail_path=None,
         )

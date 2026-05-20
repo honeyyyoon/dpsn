@@ -12,7 +12,7 @@ from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import open_wsi_handle, load_patch
-from ai.wsi.writer import ZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter
 
 class MacenkoNormalizer:
     def __init__(
@@ -189,7 +189,7 @@ class Macenko(ModelPipeline):
         grid_sampler = GridSampler(patch_size=256, read_level=0)
         src_refs = grid_sampler.sample(src_wsi_handle)
 
-        writer = ZarrWSIWriter(
+        writer = MultiZarrWSIWriter(
             result_path,
             src_wsi_handle.level_dimensions[0][0], 
             src_wsi_handle.level_dimensions[0][1],
@@ -231,10 +231,10 @@ class Macenko(ModelPipeline):
                 emit_event(status="running", progress=int(step / iter * 100), message=f"Processing {idx} ~ {idx + self.batch_size} / {len(src_refs)}")
 
         output_path = writer.finalize()
-        # writer.close()
+        writer.close()
 
         return PipelineResult(
             output_path=output_path,
             scores=metric.finalize(),
-            thumbnail_path=output_path,
+            thumbnail_path=None,
         )

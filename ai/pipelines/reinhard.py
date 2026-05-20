@@ -13,7 +13,7 @@ from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import ZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter
 
 class Reinhard(ModelPipeline):
     target_sampler: PatchSampler
@@ -114,10 +114,10 @@ class Reinhard(ModelPipeline):
         src_refs = grid_sampler.sample(src_wsi_handle)
         self.logger.info(f"Sampled: {len(src_refs)}")
 
-        writer = ZarrWSIWriter(
+        writer = MultiZarrWSIWriter(
             result_path,
-            src_wsi_handle.level_dimensions[0][0], 
-            src_wsi_handle.level_dimensions[0][1],
+            src_wsi_handle.level_dimensions[level][0], 
+            src_wsi_handle.level_dimensions[level][1],
             level_downsample=src_wsi_handle.level_downsamples[level],
             tile_size = src_refs[0].width
         )
@@ -161,14 +161,14 @@ class Reinhard(ModelPipeline):
         # self.logger.info(f"Metric: ssim({scores['ssim']:.4f}), psnr({scores['psnr']:.4f}), fid({scores['fid']:.4f})")
         
         output_path = writer.finalize()
-        # writer.close()
+        writer.close()
         # self.logger.info(f"Save Normalized Image: {image.width} x {image.height}")
         
 
         return PipelineResult(
             output_path=output_path,
             scores=metric.finalize(),
-            thumbnail_path=output_path,
+            thumbnail_path=None,
         )
         
     

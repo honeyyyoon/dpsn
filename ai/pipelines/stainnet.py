@@ -336,10 +336,17 @@ class StainNetPipeline(ModelPipeline):
 
     def _select_device(self, device: str) -> torch.device:
         if device != "auto":
-            return torch.device(device)
+            resolved = torch.device(device)
+            if resolved.type == "cuda" and (resolved.index is None or resolved.index == 0):
+                raise ValueError(
+                    "GPU 0 is disabled for this project. Please use cuda:1, cuda:2, or cuda:3."
+                )
+            return resolved
 
         if torch.cuda.is_available():
-            return torch.device("cuda")
+            for gpu_index in (1, 2, 3):
+                if torch.cuda.device_count() > gpu_index:
+                    return torch.device(f"cuda:{gpu_index}")
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")

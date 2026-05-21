@@ -37,3 +37,9 @@ export async function deleteJob(jobId: string): Promise<void> {
 export function getImageUrl(imageId: string, thumbnail: boolean = false): string {
   return `${BASE}/images/${imageId}${thumbnail ? '?thumbnail=true' : ''}`;
 }
+
+export function getImageDownloadUrl(imageId: string, filename?: string): string {
+  const params = new URLSearchParams({ download: 'true' });
+  if (filename) params.set('filename', filename);
+  return `${BASE}/images/${imageId}?${params.toString()}`;
+}

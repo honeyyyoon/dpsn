@@ -318,7 +318,10 @@ class StainNetPipeline(ModelPipeline):
 
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]:
         batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0
-        tensor = torch.from_numpy(batch).to(self.device)
+        tensor = torch.from_numpy(batch).to(
+            device=self.device,
+            dtype=torch.float32,
+        )
 
         # Original StainNet test code maps [0, 1] -> [-1, 1] before inference.
         tensor = (tensor - 0.5) * 2.0

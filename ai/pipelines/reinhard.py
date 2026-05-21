@@ -257,16 +257,16 @@ class Reinhard(ModelPipeline):
                 source_stats=source_stats,
                 target_stats=target_stats,
             )
-            new_patches = self._to_chw_uint8_numpy(new_patch_tensor)
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
-            metric.evaluate(patches, new_patches)
+            metric.evaluate_torch(patch_tensor, new_patch_tensor)
             timer['metric'] += time.time() - t0
 
             t0 = time.time()
+            new_patches = self._to_chw_uint8_numpy(new_patch_tensor)
             for i, ref in enumerate(batch_ref):
-                writer.write_patch(ref, new_patches[i].astype(np.uint8))
+                writer.write_patch(ref, new_patches[i])
             timer['writer'] += time.time() - t0
 
             if emit_event:
@@ -426,6 +426,7 @@ class Reinhard(ModelPipeline):
         return self._color_constants_cache[key]
 
     def _rgb_to_lab(self, image: torch.Tensor) -> torch.Tensor:
+        image = image.to(dtype=torch.float32)
         rgb = image.clamp(0, 1)
         linear_rgb = torch.where(
             rgb > 0.04045,
@@ -456,6 +457,7 @@ class Reinhard(ModelPipeline):
         )
 
     def _lab_to_rgb(self, lab: torch.Tensor) -> torch.Tensor:
+        lab = lab.to(dtype=torch.float32)
         l_channel, a_channel, b_channel = lab.unbind(dim=-1)
         fy = (l_channel + 16.0) / 116.0
         fx = fy + a_channel / 500.0

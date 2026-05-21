@@ -63,8 +63,14 @@ def run_sanity_check(
     )
     g_a2b, g_b2a, d_a, d_b = create_models(config, device)
 
-    batch_a = torch.from_numpy(np.stack([sample_a, sample_a], axis=0)).to(device)
-    batch_b = torch.from_numpy(np.stack([sample_b, sample_b], axis=0)).to(device)
+    batch_a = torch.from_numpy(np.stack([sample_a, sample_a], axis=0)).to(
+        device=device,
+        dtype=torch.float32,
+    )
+    batch_b = torch.from_numpy(np.stack([sample_b, sample_b], axis=0)).to(
+        device=device,
+        dtype=torch.float32,
+    )
 
     fake_b = g_a2b(batch_a)
     fake_a = g_b2a(batch_b)

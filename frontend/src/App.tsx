@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import { useNavigate, useMatch } from "react-router-dom";
 import "./styles.css";
 import { MODELS } from "./data";
 import type { UiJob, JobResult } from "./types";
-import { createJobs, getJobStatus, getJobResult, deleteJob } from "./api";
+import { createJobs, getJobStatus, getJobResult, deleteJob, fetchJobs } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
 import { UploadCard, ModelPicker } from "./components/ConfigPanel";
@@ -44,9 +45,9 @@ function Topbar({
         )}
         <div
           style={{
-            fontSize: 14,
+            fontSize: 20,
             fontWeight: 600,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.02em",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -81,20 +82,20 @@ function Topbar({
         )}
         {!viewingJob && (
           <>
-            <button className="btn ghost sm" onClick={onReset}>
-              <Icon name="history" size={14} /> 초기화
+            <button className="btn ghost" onClick={onReset}>
+              <Icon name="history" size={15} /> 초기화
             </button>
             <button
               className="btn primary"
               disabled={!canRun || running}
               onClick={onRun}
             >
-              <Icon name="play" size={13} />
+              <Icon name="play" size={14} />
               {running
                 ? "실행 중…"
                 : selectedCount > 1
                   ? `정규화 ${selectedCount}개 실행`
-                  : "실행"}
+                  : "정규화 실행"}
             </button>
           </>
         )}
@@ -110,7 +111,7 @@ function StatusLine({ ok, children }: { ok?: boolean; children: ReactNode }) {
         display: "flex",
         alignItems: "center",
         gap: 8,
-        fontSize: 12,
+        fontSize: 14,
         color: ok ? "var(--text)" : "var(--text-muted)",
       }}
     >
@@ -216,11 +217,10 @@ function ConfigColumn({
             <div>
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: 15,
                   fontWeight: 600,
                   color: "var(--text-muted)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
+                  letterSpacing: "-0.01em",
                   marginBottom: 14,
                 }}
               >
@@ -252,11 +252,10 @@ function ConfigColumn({
               >
                 <div
                   style={{
-                    fontSize: 11,
+                    fontSize: 15,
                     fontWeight: 600,
                     color: "var(--text-muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
+                    letterSpacing: "-0.01em",
                   }}
                 >
                   2. 정규화 방법 선택
@@ -265,6 +264,9 @@ function ConfigColumn({
                   className="chip accent"
                   style={{
                     visibility: selected.size > 0 ? "visible" : "hidden",
+                    fontSize: 14,
+                    height: 28,
+                    padding: "0 12px",
                   }}
                 >
                   {selected.size}개 선택됨
@@ -301,8 +303,8 @@ function ConfigColumn({
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
-              gap: 4,
+              alignItems: "center",
+              gap: 16,
               flex: 1,
               minWidth: 0,
             }}
@@ -312,6 +314,7 @@ function ConfigColumn({
             ) : (
               <StatusLine>WSI 이미지가 없습니다</StatusLine>
             )}
+            <div style={{ width: 1, height: 16, background: "var(--border-strong)", flexShrink: 0 }} />
             {selected.size > 0 ? (
               <StatusLine ok>
                 방법 {selected.size}개:{" "}
@@ -442,12 +445,24 @@ const MOCK_JOBS: UiJob[] = [
   },
 ];
 
+function formatRelativeTime(isoStr: string): string {
+  const normalized = isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z';
+  const diff = Math.floor((Date.now() - new Date(normalized).getTime()) / 1000);
+  if (diff < 60) return '방금';
+  if (diff < 3600) return `${Math.floor(diff / 60)}분`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  return `${Math.floor(diff / 86400)}d`;
+}
+
 export default function App() {
+  const navigate = useNavigate();
+  const jobMatch = useMatch('/jobs/:jobId');
+  const activeJobId = jobMatch?.params.jobId ?? null;
+
   const [file, setFile] = useState<File | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [running, setRunning] = useState(false);
   const [jobs, setJobs] = useState<UiJob[]>(MOCK_JOBS);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [showSameImageModal, setShowSameImageModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -468,7 +483,7 @@ export default function App() {
     setFile(null);
     setSelected(new Set());
     setRunning(false);
-    setActiveJobId(null);
+    navigate('/');
   };
 
   const handleJobTerminate = async (jobId: string) => {
@@ -482,7 +497,7 @@ export default function App() {
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'cancelled' } : j));
     } else {
       setJobs(prev => prev.filter(j => j.id !== jobId));
-      if (activeJobId === jobId) setActiveJobId(null);
+      if (activeJobId === jobId) navigate('/');
     }
   };
 
@@ -531,7 +546,7 @@ export default function App() {
               : j,
           ),
         );
-        if (!allFailed) setActiveJobId(uiJobId);
+        if (!allFailed) navigate(`/jobs/${uiJobId}`);
       }
     }, 1500);
   };
@@ -584,7 +599,7 @@ export default function App() {
       const mergedModelIds = [...new Set([...current.modelIds, ...newModelIds])];
       return [{ ...current, status: "running" as const, modelIds: mergedModelIds }, ...rest];
     });
-    setActiveJobId(baseJob.id);
+    navigate(`/jobs/${baseJob.id}`);
     try {
       const responses = await createJobs(file, newModelIds);
       const jobIds = responses.map((r) => r.job_id);
@@ -606,6 +621,32 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchJobs()
+      .then(groups => {
+        const serverJobs: UiJob[] = groups.map(g => {
+          const anyActive = g.jobs.some(j => j.status === 'running' || j.status === 'pending');
+          const allFailed = g.jobs.length > 0 && g.jobs.every(j => j.status === 'failed');
+          const allSettled = g.jobs.every(j => ['done', 'failed', 'cancelled'].includes(j.status));
+          const status = allFailed ? 'failed' : anyActive ? 'running' : allSettled ? 'done' : 'pending';
+          const results: Record<number, JobResult> = {};
+          for (const j of g.jobs) {
+            if (j.status === 'done' && j.result_image_id && j.metrics) {
+              results[j.model_id] = { metrics: j.metrics, result_image_id: j.result_image_id };
+            }
+          }
+          return {
+            id: g.group_id,
+            wsi: g.wsi_name,
+            modelIds: g.jobs.map(j => j.model_id),
+            status,
+            when: formatRelativeTime(g.created_at),
+            src_image_id: g.image_id,
+            results: Object.keys(results).length > 0 ? results : undefined,
+          };
+        });
+        setJobs(serverJobs);
+      })
+      .catch(() => {});
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
@@ -631,9 +672,8 @@ export default function App() {
         activeJobId={activeJobId}
         onSelectJob={(id) => {
           const job = jobs.find((j) => j.id === id);
-          if (job?.status === "done") setActiveJobId(id);
+          if (job?.status === "done") navigate(`/jobs/${id}`);
         }}
-        onNewRun={reset}
         onJobTerminate={handleJobTerminate}
       />
       <div className="main">
@@ -645,7 +685,7 @@ export default function App() {
           onReset={reset}
           title={headerTitle}
           viewingJob={viewingJob}
-          onBack={() => setActiveJobId(null)}
+          onBack={() => navigate('/')}
         />
         <div
           className="content"

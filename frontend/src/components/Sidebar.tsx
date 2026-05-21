@@ -131,13 +131,13 @@ function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
           <span>·</span>
           <span>{statusLabel[job.status]}</span>
           {job.status === 'running' && job.progress != null && (
-            <><span>·</span><span className="num">{Math.round(job.progress * 100)}%</span></>
+            <><span>·</span><span className="num">{Math.round(job.progress)}%</span></>
           )}
           <span style={{ marginLeft: 'auto', color: 'var(--text-dim)' }}>{job.when}</span>
         </div>
         {job.status === 'running' && job.progress != null && (
           <div style={{ height: 3, background: 'var(--bg-sunken)', borderRadius: 999, marginTop: 6, overflow: 'hidden' }}>
-            <div style={{ width: `${job.progress * 100}%`, height: '100%', background: 'var(--accent)', borderRadius: 999, transition: 'width 300ms' }}/>
+            <div style={{ width: `${job.progress}%`, height: '100%', background: 'var(--accent)', borderRadius: 999, transition: 'width 300ms' }}/>
           </div>
         )}
       </div>

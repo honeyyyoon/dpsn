@@ -347,7 +347,10 @@ class StainSWINPipeline(ModelPipeline):
 
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]:
         batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0
-        tensor = torch.from_numpy(batch).to(self.device)
+        tensor = torch.from_numpy(batch).to(
+            device=self.device,
+            dtype=torch.float32,
+        )
         tensor = (tensor - 0.5) * 2.0
 
         with torch.inference_mode():

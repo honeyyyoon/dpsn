@@ -75,8 +75,14 @@ def run_sanity_check(
     device = select_device(device_name)
     model = model.to(device)
 
-    batch_source = torch.from_numpy(np.stack([source, source], axis=0)).to(device)
-    batch_target = torch.from_numpy(np.stack([target, target], axis=0)).to(device)
+    batch_source = torch.from_numpy(np.stack([source, source], axis=0)).to(
+        device=device,
+        dtype=torch.float32,
+    )
+    batch_target = torch.from_numpy(np.stack([target, target], axis=0)).to(
+        device=device,
+        dtype=torch.float32,
+    )
 
     optimizer = SGD(model.parameters(), lr=0.01)
     loss_fn = nn.L1Loss()

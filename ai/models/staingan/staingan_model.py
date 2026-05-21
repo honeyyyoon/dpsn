@@ -174,8 +174,14 @@ class GANLoss(nn.Module):
     def __init__(self, target_real_label: float = 1.0, target_fake_label: float = 0.0) -> None:
         super().__init__()
         # Buffers store (real label = 1.0) (fake label = 0.0) as tensors attached to the module
-        self.register_buffer("real_label", torch.tensor(target_real_label))
-        self.register_buffer("fake_label", torch.tensor(target_fake_label))
+        self.register_buffer(
+            "real_label",
+            torch.tensor(target_real_label, dtype=torch.float32),
+        )
+        self.register_buffer(
+            "fake_label",
+            torch.tensor(target_fake_label, dtype=torch.float32),
+        )
         self.loss = nn.MSELoss()
     
     # Creates a tensor of the same shape as the discriminator output (real:1, fake:0)

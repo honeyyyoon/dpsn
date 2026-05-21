@@ -230,8 +230,8 @@ class Reinhard(ModelPipeline):
         src_wsi_handle,
         src_refs,
         level: int,
-    ) -> ZarrWSIWriter:
-        return ZarrWSIWriter(
+    ) -> MultiZarrWSIWriter:
+        return MultiZarrWSIWriter(
             result_path,
             src_wsi_handle.level_dimensions[0][0],
             src_wsi_handle.level_dimensions[0][1],
@@ -242,7 +242,7 @@ class Reinhard(ModelPipeline):
     def _process_batches(
         self,
         src_refs,
-        writer: ZarrWSIWriter,
+        writer: MultiZarrWSIWriter,
         metric: Metric,
         source_stats: ReinhardStats,
         target_stats: ReinhardStats,

@@ -8,7 +8,7 @@ import tifffile
 
 from backend.db import get_conn, DATA_DIR
 
-# 업로드된 파일을 data/uploads에 저장하고 image_id를 반환
+# 업로드된 파일을 DATA_DIR/uploads에 저장하고 image_id를 반환
 async def save_image(file: UploadFile) -> str:
     image_id = str(uuid.uuid4())
     ext = Path(file.filename).suffix if file.filename else ""

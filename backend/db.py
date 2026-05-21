@@ -1,7 +1,8 @@
 import sqlite3
+import os
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(os.environ.get("DPSN_DATA_DIR", "/mnt/Disk1/dpsn_data"))
 DB_PATH = DATA_DIR / "app.db"
 
 Path(DATA_DIR / "results").mkdir(parents=True, exist_ok=True)

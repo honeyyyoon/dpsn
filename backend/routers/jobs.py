@@ -109,12 +109,15 @@ async def get_job_results(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] != "done":
         raise HTTPException(status_code=400, detail=f"Job is not done yet: {job['status']}")
-    metrics = None
-    if job["metrics"]:
+    metrics = {}
+    raw_metrics = job.get("metrics")
+    if raw_metrics:
         try:
-            metrics = json.loads(job["metrics"])
+            parsed = json.loads(raw_metrics)
+            if isinstance(parsed, dict):
+                metrics = parsed
         except Exception:
-            metrics = job["metrics"]
+            pass
     return {
         "job_id": job_id,
         "status": "done",

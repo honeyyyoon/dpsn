@@ -19,7 +19,7 @@ class JobCancelledError(Exception):
 
 
 # SQLite Row 객체를 일반 dict로 변환
-def _row_to_dict(row) -> dict:
+def _row_to_dict(row) -> dict | None:
     return dict(row) if row else None
 
 

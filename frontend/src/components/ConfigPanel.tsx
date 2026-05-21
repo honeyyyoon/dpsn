@@ -28,7 +28,7 @@ export function UploadCard({ file, onPick, onClear }: UploadCardProps) {
       <div className="card" style={{ padding: '24px 24px', display: 'flex', gap: 20, alignItems: 'center', height: 180 }}>
         <div style={{ width: 108, height: 108, borderRadius: 14, overflow: 'hidden', flexShrink: 0 }}>
           {previewUrl
-            ? <img src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ? <img src={previewUrl} alt={file.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             : <TissueSvg seed={7} mode="dim"/>}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>

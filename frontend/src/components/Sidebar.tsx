@@ -168,7 +168,6 @@ interface SidebarProps {
   jobs: UiJob[];
   activeJobId: string | null;
   onSelectJob: (jobId: string) => void;
-  onNewRun: () => void;
   onJobTerminate: (jobId: string) => void;
 }
 

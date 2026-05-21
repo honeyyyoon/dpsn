@@ -446,7 +446,8 @@ const MOCK_JOBS: UiJob[] = [
 ];
 
 function formatRelativeTime(isoStr: string): string {
-  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  const normalized = isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z';
+  const diff = Math.floor((Date.now() - new Date(normalized).getTime()) / 1000);
   if (diff < 60) return '방금';
   if (diff < 3600) return `${Math.floor(diff / 60)}분`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
@@ -643,13 +644,7 @@ export default function App() {
             results: Object.keys(results).length > 0 ? results : undefined,
           };
         });
-        if (serverJobs.length > 0) {
-          setJobs(prev => {
-            const serverIds = new Set(serverJobs.map(j => j.id));
-            const mockOnly = prev.filter(j => j.id.startsWith('mock-') && !serverIds.has(j.id));
-            return [...serverJobs, ...mockOnly];
-          });
-        }
+        setJobs(serverJobs);
       })
       .catch(() => {});
     return () => {
@@ -679,7 +674,6 @@ export default function App() {
           const job = jobs.find((j) => j.id === id);
           if (job?.status === "done") navigate(`/jobs/${id}`);
         }}
-        onNewRun={reset}
         onJobTerminate={handleJobTerminate}
       />
       <div className="main">

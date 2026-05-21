@@ -42,7 +42,8 @@ class StainSWINInferenceConfig:
     patch_size: int = 512
     stride: int = 512
     read_level: int = 0
-    batch_size: int = 8
+    batch_size: int = 4
+    fallback_batch_sizes: tuple[int, ...] = (2, 1)
     tile_size: int = 512
     device: str = "auto"
     keep_store: bool = False
@@ -144,10 +145,16 @@ class StainSWINPipeline(ModelPipeline):
             target_patch = tgt_images
         )
 
-        for start in range(0, len(refs), self.config.batch_size):
-            batch_refs = refs[start:start + self.config.batch_size]
+        start = 0
+        processed_batches = 0
+        current_batch_size = self.config.batch_size
+        while start < len(refs):
+            batch_refs = refs[start:start + current_batch_size]
             batch_patches = [load_patch(ref).img for ref in batch_refs]
-            normalized_batch = self._normalize_batch(batch_patches)
+            normalized_batch, current_batch_size = self._normalize_batch_with_fallback(
+                batch_patches,
+                current_batch_size,
+            )
             batch_input = np.stack(batch_patches, axis=0)
             batch_output = np.stack(normalized_batch, axis=0)
 
@@ -156,14 +163,15 @@ class StainSWINPipeline(ModelPipeline):
             for ref, normalized_patch in zip(batch_refs, normalized_batch):
                 writer.write_patch(ref, normalized_patch)
 
-            batch_index = (start // self.config.batch_size) + 1
+            processed_batches += 1
+            start += len(batch_refs)
             if (
-                batch_index == 1
-                or batch_index == total_batches
-                or batch_index % max(self.config.log_every_batches, 1) == 0
+                processed_batches == 1
+                or start >= total_refs
+                or processed_batches % max(self.config.log_every_batches, 1) == 0
             ):
                 elapsed = time.time() - run_start
-                processed = min(start + len(batch_refs), total_refs)
+                processed = min(start, total_refs)
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_refs - processed
                 eta_seconds = remaining / rate if rate > 0 else float("inf")
@@ -173,8 +181,9 @@ class StainSWINPipeline(ModelPipeline):
                     else "unknown"
                 )
                 self._log(
-                    f"Processed batch {batch_index}/{total_batches} "
+                    f"Processed batch {processed_batches} "
                     f"({processed}/{total_refs} patches, "
+                    f"batch_size={current_batch_size}, "
                     f"{rate:.2f} patches/s, eta {eta_text})"
                 )
 
@@ -206,6 +215,10 @@ class StainSWINPipeline(ModelPipeline):
             raise ValueError("read_level must be >= 0")
         if self.config.batch_size <= 0:
             raise ValueError("batch_size must be > 0")
+        if any(batch_size <= 0 for batch_size in self.config.fallback_batch_sizes):
+            raise ValueError("fallback_batch_sizes must all be > 0")
+        if any(batch_size >= self.config.batch_size for batch_size in self.config.fallback_batch_sizes):
+            raise ValueError("fallback_batch_sizes must be smaller than batch_size")
         if self.config.tile_size <= 0:
             raise ValueError("tile_size must be > 0")
         if self.config.embed_dim <= 0:
@@ -346,6 +359,50 @@ class StainSWINPipeline(ModelPipeline):
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8)
         return [output_np[i] for i in range(output_np.shape[0])]
+    
+    def _normalize_batch_with_fallback(
+        self,
+        patches_chw: list[np.ndarray],
+        batch_size: int,
+    ) -> tuple[list[np.ndarray], int]:
+        candidate_sizes = self._candidate_batch_sizes(batch_size)
+        last_error: RuntimeError | None = None
+
+        for candidate_size in candidate_sizes:
+            try:
+                if candidate_size != batch_size:
+                    self._log(
+                        "Retrying StainSWIN inference with reduced "
+                        f"batch_size={candidate_size}."
+                    )
+                normalized: list[np.ndarray] = []
+                for start in range(0, len(patches_chw), candidate_size):
+                    normalized.extend(
+                        self._normalize_batch(patches_chw[start:start + candidate_size])
+                    )
+                return normalized, candidate_size
+            except RuntimeError as error:
+                if not self._is_cuda_oom(error):
+                    raise
+                last_error = error
+                self._log(
+                    f"CUDA OOM encountered with batch_size={candidate_size}. "
+                    "Trying a smaller batch size..."
+                )
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        assert last_error is not None
+        raise last_error
+    
+    def _candidate_batch_sizes(self, current_batch_size: int) -> list[int]:
+        candidates = [self.config.batch_size, *self.config.fallback_batch_sizes]
+        candidates = sorted(set(candidates), reverse=True)
+        return [size for size in candidates if size <= current_batch_size]
+    
+    def _is_cuda_oom(self, error: RuntimeError) -> bool:
+        message = str(error).lower()
+        return "out of memory" in message or "cuda error: out of memory" in message
 
     def _select_device(self, device: str) -> torch.device:
         if device != "auto":

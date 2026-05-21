@@ -336,7 +336,10 @@ class StainGANPipeline(ModelPipeline):
     # and converts the outputs back into regular image arrays (uint8)
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]: #input is a list of NumPy arrays, each shaped like (C, H, W)
         batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
-        tensor = torch.from_numpy(batch).to(self.device) #convert numpy -> tensor
+        tensor = torch.from_numpy(batch).to(
+            device=self.device,
+            dtype=torch.float32,
+        ) #convert numpy -> tensor
         tensor = (tensor - 0.5) * 2.0
 
         with torch.inference_mode(): #inference mode only - no tracking gradients

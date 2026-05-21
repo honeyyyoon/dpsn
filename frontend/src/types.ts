@@ -46,6 +46,23 @@ export interface JobResult {
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
+export interface JobListItem {
+  id: string;
+  model_id: number;
+  status: JobStatus;
+  progress: number;
+  result_image_id: string | null;
+  metrics: JobResultResponse['metrics'] | null;
+}
+
+export interface JobGroupResponse {
+  group_id: string;
+  wsi_name: string;
+  image_id: string;
+  created_at: string;
+  jobs: JobListItem[];
+}
+
 export interface UiJob {
   id: string;
   wsi: string;

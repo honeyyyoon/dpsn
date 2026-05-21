@@ -1,18 +1,19 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MODELS } from '../data';
 import type { UiJob } from '../types';
 import Icon from './Icon';
 
 function JobStatusBadge({ status }: { status: UiJob['status'] }) {
   if (status === 'done')
-    return <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'color-mix(in oklab, var(--success) 15%, var(--panel))', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="check" size={10} strokeWidth={2.5}/></span>;
+    return <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'color-mix(in oklab, var(--success) 15%, var(--panel))', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="check" size={10} strokeWidth={2.5}/></span>;
   if (status === 'running')
-    return <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'var(--accent-50)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse-dot 1.2s infinite' }}/></span>;
+    return <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--accent-50)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse-dot 1.2s infinite' }}/></span>;
   if (status === 'failed')
-    return <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'color-mix(in oklab, var(--danger) 15%, var(--panel))', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 10, fontWeight: 700 }}>!</span>;
+    return <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'color-mix(in oklab, var(--danger) 15%, var(--panel))', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 10, fontWeight: 700 }}>!</span>;
   if (status === 'cancelled')
-    return <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'var(--bg-sunken)', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="x" size={8} strokeWidth={2.5}/></span>;
-  return <span style={{ width: 14, height: 14, borderRadius: '50%', border: '1.5px dashed var(--border-strong)', flexShrink: 0 }}/>;
+    return <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--bg-sunken)', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="x" size={8} strokeWidth={2.5}/></span>;
+  return <span style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px dashed var(--border-strong)', flexShrink: 0 }}/>;
 }
 
 interface MenuItem {
@@ -111,21 +112,21 @@ function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
       onMouseLeave={() => setHover(false)}
       style={{
         position: 'relative',
-        display: 'flex', alignItems: 'flex-start', gap: 10,
-        padding: '10px 12px',
-        paddingRight: 32,
+        display: 'flex', alignItems: 'flex-start', gap: 12,
+        padding: '12px 14px',
+        paddingRight: 36,
         borderRadius: 'var(--r-md)',
         background: active ? 'var(--accent-50)' : hover ? 'var(--bg-sunken)' : 'transparent',
         cursor: 'pointer',
-        margin: '1px 0',
+        margin: '2px 0',
       }}
     >
       <JobStatusBadge status={job.status}/>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: active ? 'var(--accent-600)' : 'var(--text)' }}>
+        <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: active ? 'var(--accent-600)' : 'var(--text)' }}>
           {job.wsi}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)', marginTop: 2, whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', marginTop: 3, whiteSpace: 'nowrap' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{modelSummary}</span>
           <span>·</span>
           <span>{statusLabel[job.status]}</span>
@@ -171,23 +172,30 @@ interface SidebarProps {
   onJobTerminate: (jobId: string) => void;
 }
 
-export default function Sidebar({ jobs, activeJobId, onSelectJob, onNewRun, onJobTerminate }: SidebarProps) {
+export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate }: SidebarProps) {
+  const navigate = useNavigate();
   return (
     <aside className="sidebar">
-      <div className="sb-brand" style={{ padding: '12px 16px', justifyContent: 'center' }}>
+      <button
+        className="sb-brand"
+        style={{ padding: '12px 16px', justifyContent: 'center', width: '100%', cursor: 'pointer' }}
+        onClick={() => navigate('/')}
+        title="메인 화면으로"
+      >
         <img src="/mainImage.png" alt="Stain Normalization 비교 플랫폼" style={{ height: 36, width: 'auto', display: 'block' }}/>
-      </div>
-
-      <div style={{ padding: '12px 12px 4px' }}>
-        <button className="btn outline" style={{ width: '100%', justifyContent: 'flex-start' }} onClick={onNewRun}>
-          <Icon name="plus" size={14}/> 새 작업
-        </button>
-      </div>
+      </button>
 
       <div className="sb-body">
-        <div className="sb-section">작업</div>
+        <div className="sb-section">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="layers" size={16} strokeWidth={2}/>
+            </span>
+            작업 목록
+          </span>
+        </div>
         {jobs.length === 0 && (
-          <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+          <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-dim)', textAlign: 'center' }}>
             아직 작업이 없습니다.
           </div>
         )}

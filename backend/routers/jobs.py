@@ -1,15 +1,51 @@
+import json
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, BackgroundTasks
-from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse
+from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem
 from backend.services import job_runner, image_store
 
 router = APIRouter()
 
-# 이미지와 model_id 목록을 받아 각 모델에 대한 job을 생성하고 job_id 목록을 반환
+
+# 전체 job을 group_id 기준으로 묶어 JobGroupResponse 목록으로 반환
+@router.get("/jobs", response_model=list[JobGroupResponse])
+async def list_jobs():
+    rows = job_runner.get_all_jobs()
+    groups: dict[str, JobGroupResponse] = {}
+    for row in rows:
+        gid = row["group_id"]
+        metrics = None
+        if row["metrics"]:
+            try:
+                metrics = json.loads(row["metrics"])
+            except Exception:
+                pass
+        item = JobListItem(
+            id=row["id"],
+            model_id=row["model_id"],
+            status=row["status"],
+            progress=row["progress"],
+            result_image_id=row.get("result_image_id"),
+            metrics=metrics,
+        )
+        if gid not in groups:
+            groups[gid] = JobGroupResponse(
+                group_id=gid,
+                wsi_name=row["wsi_name"],
+                image_id=row["image_id"],
+                created_at=row["created_at"],
+                jobs=[],
+            )
+        groups[gid].jobs.append(item)
+    return list(groups.values())
+
+
+# 이미지와 모델 ID 목록을 받아 각 모델에 대한 job을 생성하고 job_id 목록 반환
 @router.post("/jobs", response_model=list[JobResponse])
 async def create_job(
     background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
-    model_ids: str = Form(...)
+    model_ids: str = Form(...),
+    wsi_name: str = Form(default=""),
 ):
     tokens = [x.strip() for x in model_ids.split(",")]
     filtered_tokens = [x for x in tokens if x]
@@ -19,39 +55,69 @@ async def create_job(
         model_id_list = [int(x) for x in filtered_tokens]
     except ValueError:
         raise HTTPException(status_code=400, detail="model_ids must be a comma-separated list of integers")
-    image_id = await image_store.save_image(image)
-    return [JobResponse(job_id=job_runner.create_job(mid, image_id, background_tasks), image_id=image_id) for mid in model_id_list]
 
-# job_id로 job을 조회하고 현재 status를 반환
+    image_id = await image_store.save_image(image)
+    derived_wsi = wsi_name or (image.filename.rsplit(".", 1)[0] if image.filename else "unknown")
+
+    group_id = None
+    responses = []
+    for mid in model_id_list:
+        job_id = job_runner.create_job(
+            model_id=mid,
+            image_id=image_id,
+            background_tasks=background_tasks,
+            group_id=group_id or "placeholder",
+            wsi_name=derived_wsi,
+        )
+        if group_id is None:
+            group_id = job_id
+            from backend.db import get_conn
+            with get_conn() as conn:
+                conn.execute("UPDATE jobs SET group_id = ? WHERE id = ?", (group_id, job_id))
+        responses.append(JobResponse(job_id=job_id, image_id=image_id))
+    return responses
+
+
+# job_id로 현재 상태(status, progress, message)를 조회해 반환
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
 async def get_job(job_id: str):
-    if job_id not in job_runner.jobs:
+    job = job_runner.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    job = job_runner.jobs[job_id]
-    return JobStatusResponse(job_id=job_id, status=job["status"], progress=job.get("progress", 0), message=job.get("message", ""))
+    return JobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        progress=job.get("progress", 0),
+        message=job.get("message", ""),
+    )
 
-# 완료된 job은 삭제, 실행 중인 job은 취소 플래그 설정
+
+# 실행 중이면 취소, 완료·실패 상태면 DB에서 삭제
 @router.delete("/jobs/{job_id}", status_code=204)
 async def delete_job(job_id: str):
-    if job_id not in job_runner.jobs:
+    job = job_runner.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     job_runner.delete_job(job_id)
 
-# job이 done 상태일 때 job_id로 결과(metrics)를 조회해 반환
-@router.get("/jobs/{job_id}/results", response_model= JobResultResponse)
+
+# 완료된 job의 결과(결과 이미지 ID, metrics)를 반환; 미완료면 400 에러
+@router.get("/jobs/{job_id}/results", response_model=JobResultResponse)
 async def get_job_results(job_id: str):
-    # TODO: metrics 스키마 구체화 (AI 모델 연결 후 dict → Pydantic 모델로 교체)
-    if job_id not in job_runner.jobs:
+    job = job_runner.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    job = job_runner.jobs[job_id]
-    
     if job["status"] != "done":
         raise HTTPException(status_code=400, detail=f"Job is not done yet: {job['status']}")
-    
+    metrics = None
+    if job["metrics"]:
+        try:
+            metrics = json.loads(job["metrics"])
+        except Exception:
+            metrics = job["metrics"]
     return {
         "job_id": job_id,
         "status": "done",
         "result_image_id": job["result_image_id"],
-        "metrics": job["result"]
+        "metrics": metrics,
     }

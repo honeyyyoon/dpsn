@@ -23,6 +23,7 @@ export interface JobResultResponse {
   status: string;
   result_image_id: string;
   metrics: { ssim: number; psnr: number; fid: number };
+  elapsed_seconds: number;
 }
 
 // UI 전용 확장 타입
@@ -37,11 +38,13 @@ export interface MetricDef {
   unit: string;
   higherBetter: boolean;
   desc: string;
+  ref: number;
 }
 
 export interface JobResult {
   metrics: JobResultResponse['metrics'];
   result_image_id: string;
+  elapsed_seconds?: number;
 }
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -53,6 +56,7 @@ export interface JobListItem {
   progress: number;
   result_image_id: string | null;
   metrics: JobResultResponse['metrics'] | null;
+  elapsed_seconds: number | null;
 }
 
 export interface JobGroupResponse {

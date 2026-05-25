@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import Icon from './Icon';
 
 interface TissueSvgProps {
   seed?: number;
@@ -85,10 +86,13 @@ interface WsiViewProps {
   style?: CSSProperties;
   children?: ReactNode;
   onRatioDetected?: (ratio: number) => void;
+  onHide?: () => void;
+  hidden?: boolean;
 }
 
 export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intensity = 1,
-                          showGrid = false, chip, chipColor, style, children, onRatioDetected }: WsiViewProps) {
+                          showGrid = false, chip, chipColor, style, children, onRatioDetected,
+                          onHide, hidden }: WsiViewProps) {
   const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
 
   return (
@@ -130,16 +134,31 @@ export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intens
         </svg>
       )}
       {chip && (
-        <div style={{
-          position: 'absolute', top: 10, left: 10,
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '4px 10px', borderRadius: 999,
-          fontSize: 11, fontWeight: 600,
-          color: '#fff',
-          background: chipColor || 'rgba(15,22,41,0.72)',
-          backdropFilter: 'blur(8px)',
-          letterSpacing: '0.02em',
-        }}>{chip}</div>
+        <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 999,
+            fontSize: 11, fontWeight: 600,
+            color: '#fff',
+            background: chipColor || 'rgba(15,22,41,0.72)',
+            backdropFilter: 'blur(8px)',
+            letterSpacing: '0.02em',
+          }}>{chip}</div>
+          {onHide && (
+            <button
+              onClick={onHide}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 24, height: 24, borderRadius: 999, border: 'none', cursor: 'pointer',
+                background: 'rgba(15,22,41,0.72)', backdropFilter: 'blur(8px)',
+                color: hidden ? 'rgba(255,255,255,0.35)' : '#fff',
+              }}
+              title={hidden ? '표시' : '숨기기'}
+            >
+              <Icon name={hidden ? 'eye-off' : 'eye'} size={12} />
+            </button>
+          )}
+        </div>
       )}
       {label && (
         <div style={{

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, BackgroundTasks
 from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem
 from backend.services import job_runner, image_store
@@ -19,6 +20,14 @@ async def list_jobs():
                 metrics = json.loads(row["metrics"])
             except Exception:
                 pass
+        elapsed = None
+        if row["status"] == "done":
+            try:
+                elapsed = (
+                    datetime.fromisoformat(row["updated_at"]) - datetime.fromisoformat(row["created_at"])
+                ).total_seconds()
+            except Exception:
+                pass
         item = JobListItem(
             id=row["id"],
             model_id=row["model_id"],
@@ -26,6 +35,7 @@ async def list_jobs():
             progress=row["progress"],
             result_image_id=row.get("result_image_id"),
             metrics=metrics,
+            elapsed_seconds=elapsed,
         )
         if gid not in groups:
             groups[gid] = JobGroupResponse(
@@ -118,9 +128,16 @@ async def get_job_results(job_id: str):
                 metrics = parsed
         except Exception:
             pass
+    try:
+        elapsed = (
+            datetime.fromisoformat(job["updated_at"]) - datetime.fromisoformat(job["created_at"])
+        ).total_seconds()
+    except Exception:
+        elapsed = 0.0
     return {
         "job_id": job_id,
         "status": "done",
         "result_image_id": job["result_image_id"],
         "metrics": metrics,
+        "elapsed_seconds": elapsed,
     }

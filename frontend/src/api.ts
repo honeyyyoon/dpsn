@@ -43,3 +43,8 @@ export async function fetchJobs(): Promise<JobGroupResponse[]> {
 export function getImageUrl(imageId: string, thumbnail: boolean = false): string {
   return `${BASE}/images/${imageId}${thumbnail ? '?thumbnail=true' : ''}`;
 }
+
+export function getTargetImageUrl(): string {
+  return `${BASE}/images/target`;
+}
+

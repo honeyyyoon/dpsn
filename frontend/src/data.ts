@@ -10,7 +10,7 @@ export const MODELS: ModelUi[] = [
 ];
 
 export const METRIC_DEFS: MetricDef[] = [
-  { key: 'psnr', label: 'PSNR',  unit: 'dB', higherBetter: true,  desc: 'Peak signal-to-noise ratio' },
-  { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity' },
-  { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance' },
+  { key: 'psnr', label: 'PSNR',  unit: 'dB', higherBetter: true,  desc: 'Peak signal-to-noise ratio', ref: 22   },
+  { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity',       ref: 0.90 },
+  { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance',  ref: 60   },
 ];

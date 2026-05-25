@@ -203,7 +203,6 @@ export function SingleResult({ model, result, srcImageId }: { model: ModelUi; re
 
 export function MultiDashboard({ models, results, srcImageId }: { models: ModelUi[]; results: Record<number, JobResult>; srcImageId?: string }) {
   const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
-  const [sharedRatio, setSharedRatio] = useState<number | null>(null);
   const [hiddenModels, setHiddenModels] = useState<Set<number>>(new Set());
   const seed = 7;
 
@@ -217,9 +216,10 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
   };
 
   const sorted = [...models].sort((a, b) => {
-    const A = results[a.id]?.metrics[sortKey] ?? 0;
-    const B = results[b.id]?.metrics[sortKey] ?? 0;
     const def = METRIC_DEFS.find((d) => d.key === sortKey);
+    const missing = def?.higherBetter ? -Infinity : Infinity;
+    const A = results[a.id]?.metrics[sortKey] ?? missing;
+    const B = results[b.id]?.metrics[sortKey] ?? missing;
     return def?.higherBetter ? B - A : A - B;
   });
 
@@ -234,9 +234,11 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
 
   const best: Record<string, number> = {};
   METRIC_DEFS.forEach((def) => {
-    const vals = models.map((m) => ({ id: m.id, v: results[m.id]?.metrics[def.key as keyof (typeof results)[number]["metrics"]] ?? 0 }));
+    const vals = models
+      .filter((m) => results[m.id]?.metrics[def.key as keyof (typeof results)[number]["metrics"]] != null)
+      .map((m) => ({ id: m.id, v: results[m.id].metrics[def.key as keyof (typeof results)[number]["metrics"]] }));
     vals.sort((x, y) => (def.higherBetter ? y.v - x.v : x.v - y.v));
-    best[def.key] = vals[0].id;
+    if (vals.length > 0) best[def.key] = vals[0].id;
   });
 
   const handleDownload = async (imageId: string, modelName: string) => {
@@ -312,7 +314,7 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
               result={results[m.id]}
               best={best}
               seed={seed}
-              onRatioDetected={i === 0 && sharedRatio === null ? setSharedRatio : undefined}
+              onRatioDetected={undefined}
               onDownload={handleDownload}
               style={visibleCount === 2 ? { gridColumn: 1 } : undefined}
             />

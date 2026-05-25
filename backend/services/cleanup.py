@@ -1,4 +1,3 @@
-from pathlib import Path
 from backend.db import get_conn, DATA_DIR
 
 

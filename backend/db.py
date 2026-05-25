@@ -23,8 +23,32 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS images (
             id TEXT PRIMARY KEY,
             path TEXT NOT NULL,
+            original_filename TEXT,
             has_thumbnail INTEGER NOT NULL DEFAULT 0,
             thumbnail_path TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        try:
+            conn.execute("ALTER TABLE images ADD COLUMN original_filename TEXT")
+        except Exception:
+            pass
+
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL,
+            model_id INTEGER NOT NULL,
+            image_id TEXT NOT NULL,
+            wsi_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            progress REAL NOT NULL DEFAULT 0,
+            message TEXT NOT NULL DEFAULT '',
+            cancelled INTEGER NOT NULL DEFAULT 0,
+            result_image_id TEXT,
+            metrics TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (image_id) REFERENCES images(id)
         )
         """)

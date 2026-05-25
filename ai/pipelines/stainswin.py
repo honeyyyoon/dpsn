@@ -165,13 +165,23 @@ class StainSWINPipeline(ModelPipeline):
 
             processed_batches += 1
             start += len(batch_refs)
+            processed = min(start, total_refs)
+            if emit_event:
+                emit_event(
+                    status="running",
+                    progress=int(processed / total_refs * 100),
+                    message=(
+                        f"Processing {start - len(batch_refs)} ~ "
+                        f"{processed} / {total_refs}"
+                    ),
+                )
+
             if (
                 processed_batches == 1
                 or start >= total_refs
                 or processed_batches % max(self.config.log_every_batches, 1) == 0
             ):
                 elapsed = time.time() - run_start
-                processed = min(start, total_refs)
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_refs - processed
                 eta_seconds = remaining / rate if rate > 0 else float("inf")

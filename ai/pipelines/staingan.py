@@ -147,13 +147,23 @@ class StainGANPipeline(ModelPipeline):
                 writer.write_patch(ref, normalized_patch)
 
             batch_index = (start // self.config.batch_size) + 1
+            processed = min(start + len(batch_refs), total_refs)
+            if emit_event:
+                emit_event(
+                    status="running",
+                    progress=int(processed / total_refs * 100),
+                    message=(
+                        f"Processing {start} ~ "
+                        f"{processed} / {total_refs}"
+                    ),
+                )
+
             if (
                 batch_index == 1
                 or batch_index == total_batches
                 or batch_index % max(self.config.log_every_batches, 1) == 0
             ):
                 elapsed = time.time() - run_start
-                processed = min(start + len(batch_refs), total_refs)
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_refs - processed
                 eta_seconds = remaining / rate if rate > 0 else float("inf")

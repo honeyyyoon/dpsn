@@ -36,6 +36,7 @@ class Worker:
     """Simple runtime coordinator for one normalization task."""
 
     def run(self, task: Task, emit_event) -> TaskResult:
+        emit_event(status="running", progress=1, message="Loading pipeline.")
         pipeline = self._create_pipeline(task.model_id)
         pipeline_result = pipeline.run(
             task.src_img_path, 

@@ -79,16 +79,21 @@ class StainNetPipeline(ModelPipeline):
         metrics: list[str] = [],
         emit_event=None
     ) -> PipelineResult:
+        self._emit_progress(emit_event, 1, "Preparing StainNet inference.")
+
         tgt_imgs = None
         if "fid" in metrics:
             if target_img_path is None:
                 raise ValueError("FID needs target image")
+            self._emit_progress(emit_event, 3, "Loading target patches for FID.")
             tgt_wsi_handle = open_wsi_handle(target_img_path)
             tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
             tgt_imgs = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
 
+        self._emit_progress(emit_event, 8, "Sampling source WSI patches.")
         src_wsi_handle = open_wsi_handle(src_img_path)
         level_count = len(src_wsi_handle.level_dimensions)
         if not (0 <= self.config.read_level < level_count):
@@ -138,6 +143,7 @@ class StainNetPipeline(ModelPipeline):
             use_fid = "fid" in metrics,
             target_patch = tgt_imgs
         )
+        self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")
 
         for start in range(0, len(refs), self.config.batch_size):
             batch_refs = refs[start:start + self.config.batch_size]
@@ -145,22 +151,19 @@ class StainNetPipeline(ModelPipeline):
             normalized_batch = self._normalize_batch(batch_patches)
             batch_input = np.stack(batch_patches, axis=0)
             batch_output = np.stack(normalized_batch, axis=0)
-            metric.evaluate(batch_input, batch_output)
 
             for ref, normalized_patch in zip(batch_refs, normalized_batch):
                 writer.write_patch(ref, normalized_patch)
 
             batch_index = (start // self.config.batch_size) + 1
             processed = min(start + len(batch_refs), total_refs)
-            if emit_event:
-                emit_event(
-                    status="running",
-                    progress=int(processed / total_refs * 100),
-                    message=(
-                        f"Processing {start} ~ "
-                        f"{processed} / {total_refs}"
-                    ),
-                )
+            self._emit_progress(
+                emit_event,
+                10 + int(processed / max(total_refs, 1) * 75),
+                f"Processing {start} ~ {processed} / {total_refs}",
+            )
+
+            metric.evaluate(batch_input, batch_output)
 
             if (
                 batch_index == 1
@@ -183,10 +186,13 @@ class StainNetPipeline(ModelPipeline):
                 )
 
         self._log("Finalizing MultiZarr writer and writing WSI TIFF...")
+        self._emit_progress(emit_event, 88, "Writing output WSI TIFF.")
         final_output_path = writer.finalize()
         writer.close()
         total_elapsed = time.time() - run_start
+        self._emit_progress(emit_event, 95, "Computing final metrics.")
         normalized_scores = metric.finalize()
+        self._emit_progress(emit_event, 98, "Finalizing StainNet result.")
 
         self._log(
             f"Finished inference in {total_elapsed:.1f}s. "
@@ -363,6 +369,14 @@ class StainNetPipeline(ModelPipeline):
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")
+
+    def _emit_progress(self, emit_event, progress: int, message: str) -> None:
+        if emit_event:
+            emit_event(
+                status="running",
+                progress=max(0, min(99, int(progress))),
+                message=message,
+            )
 
     # def _build_output_path(self, src_img_path: Path) -> Path:
     #     self.config.output_dir.mkdir(parents=True, exist_ok=True)

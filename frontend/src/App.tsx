@@ -350,7 +350,7 @@ const MOCK_JOBS: UiJob[] = [
     modelIds: [1, 2],
     status: "running",
     when: "now",
-    progress: 0.6,
+    progress: 60,
   },
   {
     id: "mock-pending",
@@ -532,7 +532,7 @@ export default function App() {
       }
 
       setJobs((prev) =>
-        prev.map((j) => j.id === uiJobId ? { ...j, progress: progress / 100 / jobIds.length } : j),
+        prev.map((j) => j.id === uiJobId ? { ...j, progress: progress / jobIds.length } : j),
       );
 
       if (finishedSet.size >= jobIds.length) {
@@ -640,6 +640,9 @@ export default function App() {
             modelIds: g.jobs.map(j => j.model_id),
             status,
             when: formatRelativeTime(g.created_at),
+            progress: g.jobs.length > 0
+              ? g.jobs.reduce((sum, j) => sum + (j.status === 'done' || j.status === 'failed' ? 100 : j.progress), 0) / g.jobs.length
+              : undefined,
             src_image_id: g.image_id,
             results: Object.keys(results).length > 0 ? results : undefined,
           };

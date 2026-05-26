@@ -190,7 +190,7 @@ class StainSWINPipeline(ModelPipeline):
         )
         self._log(f"Thumbnail written to {writer.thumbnail_path}")
         for key, value in normalized_scores.items():
-            self._log(f"{key.upper()}: {value:.6f}")
+            self._log(f"{key.upper()}: {value}")
         return PipelineResult(
             output_path=final_output_path,
             scores=normalized_scores,

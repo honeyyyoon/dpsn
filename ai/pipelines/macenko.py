@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 import numpy as np
+import torch
 
 from ai.metrics.metric import Metric
 from ai.pipelines.base import ModelPipeline
@@ -16,36 +17,65 @@ from ai.wsi.writer import ZarrWSIWriter
 
 
 class MacenkoNormalizer:
+    DEFAULT_STAIN_MATRIX = np.array(
+        [
+            [0.65, 0.07],
+            [0.70, 0.99],
+            [0.29, 0.11],
+        ],
+        dtype=np.float32,
+    )
+
     def __init__(
         self,
         alpha: float = 1.0,
         beta: float = 0.15,
         Io: int = 240,
         eps: float = 1e-8,
+        max_fit_pixels: int = 200_000,
+        random_seed: int = 0,
+        max_stain_cosine: float = 0.98,
+        min_concentration_scale: float = 0.25,
+        max_concentration_scale: float = 4.0,
+        device: str | torch.device | None = None,
     ):
         self.alpha = alpha
         self.beta = beta
         self.Io = Io
         self.eps = eps
+        self.max_fit_pixels = max_fit_pixels
+        self.random_seed = random_seed
+        self.max_stain_cosine = max_stain_cosine
+        self.min_concentration_scale = min_concentration_scale
+        self.max_concentration_scale = max_concentration_scale
+        self.device = self._select_device(device)
 
-        self.source_stain_matrix: np.ndarray | None = None
-        self.source_max_conc: np.ndarray | None = None
-        self.target_stain_matrix: np.ndarray | None = None
-        self.target_max_conc: np.ndarray | None = None
+        self.source_stain_matrix: torch.Tensor | None = None
+        self.source_max_conc: torch.Tensor | None = None
+        self.target_stain_matrix: torch.Tensor | None = None
+        self.target_max_conc: torch.Tensor | None = None
 
-    def fit(self, source_rgb: np.ndarray, target_rgb: np.ndarray) -> None:
-        self._validate_rgb(source_rgb)
-        self._validate_rgb(target_rgb)
+    def fit(
+        self,
+        source_rgb: np.ndarray | torch.Tensor,
+        target_rgb: np.ndarray | torch.Tensor,
+    ) -> None:
+        source_rgb = self._to_hwc_float_tensor(source_rgb)
+        target_rgb = self._to_hwc_float_tensor(target_rgb)
 
         self.source_stain_matrix = self._estimate_stain_matrix(source_rgb)
         source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
-        self.source_max_conc = np.percentile(source_conc, 95, axis=1)
+        self.source_max_conc = torch.quantile(source_conc, 0.95, dim=1)
 
         self.target_stain_matrix = self._estimate_stain_matrix(target_rgb)
         target_conc = self._estimate_concentrations(target_rgb, self.target_stain_matrix)
-        self.target_max_conc = np.percentile(target_conc, 95, axis=1)
+        self.target_max_conc = torch.quantile(target_conc, 0.95, dim=1)
 
-    def normalize(self, source_rgb: np.ndarray) -> np.ndarray:
+    def normalize(self, source_rgb: np.ndarray | torch.Tensor) -> np.ndarray:
+        normalized = self.normalize_tensor(source_rgb)
+        return normalized.detach().cpu().numpy()
+
+    def normalize_tensor(self, source_rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
         if (
             self.source_stain_matrix is None
             or self.source_max_conc is None
@@ -54,19 +84,35 @@ class MacenkoNormalizer:
         ):
             raise RuntimeError("Call fit(source_patches, target_patches) before normalize().")
 
-        self._validate_rgb(source_rgb)
+        source_rgb = self._to_hwc_float_tensor(source_rgb)
         original_shape = source_rgb.shape
 
         source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
 
         scale = self.target_max_conc / (self.source_max_conc + self.eps)
+        scale = torch.clamp(
+            scale,
+            self.min_concentration_scale,
+            self.max_concentration_scale,
+        )
         normalized_conc = source_conc * scale[:, None]
 
         normalized_od = self.target_stain_matrix @ normalized_conc
-        normalized_rgb = self.Io * np.exp(-normalized_od)
+        normalized_rgb = self.Io * torch.exp(-normalized_od)
         normalized_rgb = normalized_rgb.T.reshape(original_shape)
 
-        return np.clip(normalized_rgb, 0, 255).astype(np.uint8)
+        return normalized_rgb.clamp(0, 255).round().to(dtype=torch.uint8)
+
+    def _select_device(self, device: str | torch.device | None) -> torch.device:
+        if device is not None:
+            return torch.device(device)
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            return torch.device("mps")
+
+        return torch.device("cpu")
 
     def _validate_rgb(self, rgb: np.ndarray) -> None:
         if rgb.ndim not in {3, 4}:
@@ -74,54 +120,132 @@ class MacenkoNormalizer:
         if rgb.shape[-1] != 3:
             raise ValueError(f"Expected RGB data with channels-last shape, got {rgb.shape}")
 
-    def _rgb_to_od(self, rgb: np.ndarray) -> np.ndarray:
-        rgb = rgb.astype(np.float32)
-        rgb = np.clip(rgb, 1, self.Io)
-        return -np.log((rgb + self.eps) / self.Io)
+    def _to_hwc_float_tensor(self, rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
+        if isinstance(rgb, np.ndarray):
+            self._validate_rgb(rgb)
+            tensor = torch.from_numpy(np.ascontiguousarray(rgb))
+        elif isinstance(rgb, torch.Tensor):
+            tensor = rgb
+            if tensor.ndim not in {3, 4}:
+                raise ValueError(f"Expected RGB image or batch, got {tensor.ndim}D tensor")
+            if tensor.shape[-1] != 3:
+                raise ValueError(f"Expected RGB data with channels-last shape, got {tuple(tensor.shape)}")
+        else:
+            raise TypeError(f"rgb must be a numpy.ndarray or torch.Tensor, got {type(rgb).__name__}")
 
-    def _estimate_stain_matrix(self, rgb: np.ndarray) -> np.ndarray:
-        od = self._rgb_to_od(rgb).reshape(-1, 3)
+        tensor = tensor.to(device=self.device, dtype=torch.float32)
+        if float(tensor.max().detach().cpu().item()) <= 1.0:
+            tensor = tensor * 255.0
 
-        od_norm = np.linalg.norm(od, axis=1)
-        od = od[od_norm > self.beta]
+        return tensor
+
+    def _rgb_to_od(self, rgb: torch.Tensor) -> torch.Tensor:
+        rgb = rgb.to(device=self.device, dtype=torch.float32)
+        rgb = rgb.clamp(1, self.Io)
+        return -torch.log((rgb + self.eps) / self.Io)
+
+    def _estimate_stain_matrix(self, rgb: torch.Tensor) -> torch.Tensor:
+        od = self._prepare_od(rgb)
+
+        _, _, vh = torch.linalg.svd(od, full_matrices=False)
+        top_vectors = vh[:2].T
+
+        projected = od @ top_vectors
+        angles = torch.atan2(projected[:, 1], projected[:, 0])
+
+        min_angle = torch.quantile(angles, self.alpha / 100.0)
+        max_angle = torch.quantile(angles, 1.0 - self.alpha / 100.0)
+
+        v1 = top_vectors @ torch.stack([torch.cos(min_angle), torch.sin(min_angle)])
+        v2 = top_vectors @ torch.stack([torch.cos(max_angle), torch.sin(max_angle)])
+
+        if float(v1[0].detach().cpu().item()) > float(v2[0].detach().cpu().item()):
+            stain_matrix = torch.stack([v1, v2], dim=1)
+        else:
+            stain_matrix = torch.stack([v2, v1], dim=1)
+
+        stain_matrix = self._normalize_stain_matrix(stain_matrix)
+        if not self._is_stable_stain_matrix(stain_matrix):
+            default = torch.as_tensor(
+                self.DEFAULT_STAIN_MATRIX,
+                device=self.device,
+                dtype=torch.float32,
+            )
+            return self._normalize_stain_matrix(default)
+
+        return stain_matrix
+
+    def _prepare_od(self, rgb: torch.Tensor) -> torch.Tensor:
+        flat_rgb = self._to_hwc_float_tensor(rgb).reshape(-1, 3)
+        od = self._rgb_to_od(flat_rgb).reshape(-1, 3)
+        od_norm = torch.linalg.vector_norm(od, dim=1)
+
+        rgb_unit = flat_rgb / 255.0
+        channel_max = torch.amax(rgb_unit, dim=1)
+        channel_min = torch.amin(rgb_unit, dim=1)
+        saturation = (channel_max - channel_min) / (channel_max + self.eps)
+
+        valid = (
+            (od_norm > self.beta)
+            & (channel_max < 0.98)
+            & (saturation > 0.02)
+        )
+        od = od[valid]
+
+        if len(od) == 0:
+            fallback_valid = od_norm > self.beta
+            od = self._rgb_to_od(flat_rgb[fallback_valid]).reshape(-1, 3)
 
         if len(od) == 0:
             raise ValueError("No valid tissue pixels found. Try lowering beta.")
 
-        _, _, vh = np.linalg.svd(od, full_matrices=False)
-        top_vectors = vh[:2].T
+        if len(od) > self.max_fit_pixels:
+            rng = np.random.default_rng(self.random_seed)
+            indices = rng.choice(len(od), size=self.max_fit_pixels, replace=False)
+            indices = torch.as_tensor(indices, device=self.device, dtype=torch.long)
+            od = od[indices]
 
-        projected = od @ top_vectors
-        angles = np.arctan2(projected[:, 1], projected[:, 0])
+        return od
 
-        min_angle = np.percentile(angles, self.alpha)
-        max_angle = np.percentile(angles, 100 - self.alpha)
+    def _normalize_stain_matrix(self, stain_matrix: torch.Tensor) -> torch.Tensor:
+        stain_matrix = stain_matrix.to(device=self.device, dtype=torch.float32)
+        for index in range(stain_matrix.shape[1]):
+            if float(stain_matrix[:, index].sum().detach().cpu().item()) < 0:
+                stain_matrix[:, index] *= -1
 
-        v1 = top_vectors @ np.array([np.cos(min_angle), np.sin(min_angle)])
-        v2 = top_vectors @ np.array([np.cos(max_angle), np.sin(max_angle)])
-
-        if v1[0] > v2[0]:
-            stain_matrix = np.stack([v1, v2], axis=1)
-        else:
-            stain_matrix = np.stack([v2, v1], axis=1)
-
-        stain_matrix = stain_matrix / (
-            np.linalg.norm(stain_matrix, axis=0, keepdims=True) + self.eps
+        stain_matrix = torch.clamp_min(stain_matrix, self.eps)
+        return stain_matrix / (
+            torch.linalg.vector_norm(stain_matrix, dim=0, keepdim=True) + self.eps
         )
 
-        return stain_matrix
+    def _is_stable_stain_matrix(self, stain_matrix: torch.Tensor) -> bool:
+        if stain_matrix.shape != (3, 2):
+            return False
+        if not torch.isfinite(stain_matrix).all():
+            return False
+
+        cosine = torch.abs(torch.dot(stain_matrix[:, 0], stain_matrix[:, 1]))
+        cosine = float(cosine.detach().cpu().item())
+        return cosine < self.max_stain_cosine
 
     def _estimate_concentrations(
         self,
-        rgb: np.ndarray,
-        stain_matrix: np.ndarray,
-    ) -> np.ndarray:
+        rgb: torch.Tensor,
+        stain_matrix: torch.Tensor,
+    ) -> torch.Tensor:
         od = self._rgb_to_od(rgb).reshape(-1, 3).T
 
-        concentrations, _, _, _ = np.linalg.lstsq(stain_matrix, od, rcond=None)
-        concentrations = np.maximum(concentrations, 0)
-
-        return concentrations
+        gram = stain_matrix.T @ stain_matrix
+        det = gram[0, 0] * gram[1, 1] - gram[0, 1] * gram[1, 0]
+        det = torch.clamp(det, min=self.eps)
+        gram_inv = torch.stack(
+            [
+                torch.stack([gram[1, 1], -gram[0, 1]]),
+                torch.stack([-gram[1, 0], gram[0, 0]]),
+            ],
+        ) / det
+        concentrations = gram_inv @ stain_matrix.T @ od
+        return concentrations.clamp_min(0)
 
 
 class Macenko(ModelPipeline):
@@ -132,12 +256,14 @@ class Macenko(ModelPipeline):
         patch_size: int = 256,
         max_sample_patches: int = 64,
         max_iteration: int = 128,
+        device: str | torch.device | None = None,
     ):
         super().__init__(logger or logging.getLogger(__name__))
         self.batch_size = int(batch_size)
         self.patch_size = int(patch_size)
         self.max_sample_patches = int(max_sample_patches)
         self.max_iteration = int(max_iteration)
+        self.device = self._select_device(device)
         self._validate_config()
 
     def run(
@@ -149,6 +275,7 @@ class Macenko(ModelPipeline):
         emit_event=None
     ) -> PipelineResult:
         self.logger.info("Run Macenko")
+        self.logger.info(f"Use Macenko device: {self.device}")
 
         if target_img_path is None:
             raise ValueError("Macenko pipeline requires a target image.")
@@ -158,9 +285,10 @@ class Macenko(ModelPipeline):
         self._log_wsi_info("source", src_wsi_handle)
         self._log_wsi_info("target", target_wsi_handle)
 
-        macenko = MacenkoNormalizer()
+        macenko = MacenkoNormalizer(device=self.device)
         fit_patch_sampler = PatchSampler(
             patch_size=self.patch_size,
+            training_tissue_threshold=0.3,
             strict_mpp_check=False,
         )
 
@@ -179,8 +307,8 @@ class Macenko(ModelPipeline):
 
         self.logger.info("Fit Macenko normalizer")
         macenko.fit(
-            self._to_hwc_batch(source_patches),
-            self._to_hwc_batch(target_patches),
+            self._to_hwc_float_tensor(source_patches),
+            self._to_hwc_float_tensor(target_patches),
         )
 
         level = self._select_read_level(src_wsi_handle)
@@ -228,6 +356,17 @@ class Macenko(ModelPipeline):
             )
         if self.max_iteration <= 0:
             raise ValueError(f"max_iteration must be > 0, got {self.max_iteration}")
+
+    def _select_device(self, device: str | torch.device | None) -> torch.device:
+        if device is not None:
+            return torch.device(device)
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            return torch.device("mps")
+
+        return torch.device("cpu")
 
     def _log_wsi_info(self, label: str, wsi_handle) -> None:
         self.logger.info(f"Read {label} image")
@@ -327,16 +466,18 @@ class Macenko(ModelPipeline):
             timer['load'] += time.time() - t0
 
             t0 = time.time()
-            new_patches = self._normalize_batch(normalizer, patches)
+            patch_tensor = self._to_chw_tensor(patches)
+            new_patch_tensor = self._normalize_batch(normalizer, patch_tensor)
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
-            metric.evaluate(patches, new_patches)
+            metric.evaluate_torch(patch_tensor, new_patch_tensor)
             timer['metric'] += time.time() - t0
 
             t0 = time.time()
+            new_patches = new_patch_tensor.detach().cpu().numpy()
             for i, ref in enumerate(batch_ref):
-                writer.write_patch(ref, new_patches[i].astype(np.uint8))
+                writer.write_patch(ref, new_patches[i])
             timer['writer'] += time.time() - t0
 
             if emit_event:
@@ -354,11 +495,41 @@ class Macenko(ModelPipeline):
     def _normalize_batch(
         self,
         normalizer: MacenkoNormalizer,
-        patches: np.ndarray,
-    ) -> np.ndarray:
-        normalized = normalizer.normalize(self._to_hwc_batch(patches))
+        patches: torch.Tensor,
+    ) -> torch.Tensor:
+        normalized = normalizer.normalize_tensor(patches.permute(0, 2, 3, 1))
 
-        return self._to_chw_batch(normalized)
+        return normalized.permute(0, 3, 1, 2)
+
+    def _to_chw_tensor(self, patches: np.ndarray | torch.Tensor) -> torch.Tensor:
+        if isinstance(patches, np.ndarray):
+            if patches.ndim == 3:
+                patches = patches[np.newaxis, ...]
+            if patches.ndim != 4:
+                raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+            if patches.shape[1] != 3:
+                raise ValueError(f"Expected CHW patch batch with 3 channels, got {patches.shape}")
+            tensor = torch.from_numpy(np.ascontiguousarray(patches))
+        elif isinstance(patches, torch.Tensor):
+            tensor = patches
+            if tensor.ndim == 3:
+                tensor = tensor.unsqueeze(0)
+            if tensor.ndim != 4:
+                raise ValueError(f"Expected patch batch with 4D shape, got {tensor.ndim}D")
+            if tensor.shape[1] != 3:
+                raise ValueError(f"Expected CHW patch batch with 3 channels, got {tuple(tensor.shape)}")
+        else:
+            raise TypeError(f"patches must be a numpy.ndarray or torch.Tensor, got {type(patches).__name__}")
+
+        return tensor.to(device=self.device)
+
+    def _to_hwc_float_tensor(self, patches: np.ndarray | torch.Tensor) -> torch.Tensor:
+        tensor = self._to_chw_tensor(patches).permute(0, 2, 3, 1)
+        tensor = tensor.to(device=self.device, dtype=torch.float32)
+        if float(tensor.max().detach().cpu().item()) <= 1.0:
+            tensor = tensor * 255.0
+
+        return tensor
 
     def _to_hwc_batch(self, patches: np.ndarray) -> np.ndarray:
         if patches.ndim == 3:

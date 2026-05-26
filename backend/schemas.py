@@ -16,6 +16,7 @@ class JobStatusResponse(BaseModel):
     status: str
     progress: float
     message: str
+    error_detail: str = ""
 
 class JobResultResponse(BaseModel):
     job_id: str
@@ -29,6 +30,8 @@ class JobListItem(BaseModel):
     model_id: int
     status: str
     progress: float
+    message: str | None = None
+    error_detail: str | None = None
     result_image_id: str | None
     metrics: Any | None
     elapsed_seconds: float | None

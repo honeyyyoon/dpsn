@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useNavigate, useMatch } from "react-router-dom";
 import "./styles.css";
 import { MODELS } from "./data";
-import type { UiJob, JobResult } from "./types";
+import type { UiJob, JobResult, FailedJobInfo } from "./types";
 import { createJobs, getJobStatus, getJobResult, deleteJob, fetchJobs } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
@@ -433,11 +433,29 @@ const MOCK_JOBS: UiJob[] = [
     },
   },
   {
+    id: "mock-partial-fail",
+    wsi: "TCGA-BRCA-A3L1",
+    modelIds: [1, 2, 5],
+    status: "done",
+    when: "1d",
+    results: {
+      1: { metrics: { ssim: 0.934, psnr: 26.81, fid: 13.4 }, result_image_id: "", elapsed_seconds: 18 },
+    },
+    failedJobInfo: {
+      2: { message: "오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", error_detail: "No tissue found in slide thumbnail: /data/uploads/TCGA-BRCA-A3L1.tif" },
+      5: { message: "오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", error_detail: "StainNet checkpoint not found: /data/checkpoints/stainnet_v2.pth" },
+    },
+  },
+  {
     id: "mock-fail",
     wsi: "NLST-lung-00891",
     modelIds: [2, 5],
     status: "failed",
     when: "2d",
+    failedJobInfo: {
+      2: { message: "오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", error_detail: "Macenko pipeline requires a target image." },
+      5: { message: "오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", error_detail: "StainNet checkpoint not found: /data/checkpoints/stainnet_latest.pth" },
+    },
   },
   {
     id: "mock-cancel",
@@ -500,8 +518,8 @@ export default function App() {
 
   const startPolling = (uiJobId: string, jobIds: string[], modelIds: number[]) => {
     const newResults: Record<number, JobResult> = {};
+    const newFailedInfo: Record<number, FailedJobInfo> = {};
     const finishedSet = new Set<number>();
-    const failedSet = new Set<number>();
 
     pollingRef.current = setInterval(async () => {
       let progress = 0;
@@ -517,7 +535,7 @@ export default function App() {
             finishedSet.add(modelId);
             progress += 100;
           } else if (status.status === "failed") {
-            failedSet.add(modelId);
+            newFailedInfo[modelId] = { message: status.message, error_detail: status.error_detail };
             finishedSet.add(modelId);
             progress += 100;
           } else {
@@ -535,15 +553,21 @@ export default function App() {
       if (finishedSet.size >= jobIds.length) {
         if (pollingRef.current) clearInterval(pollingRef.current);
         setRunning(false);
-        const allFailed = failedSet.size === jobIds.length;
+        const allFailed = Object.keys(newFailedInfo).length === jobIds.length;
         setJobs((prev) =>
           prev.map((j) =>
             j.id === uiJobId
-              ? { ...j, status: allFailed ? "failed" : "done", results: { ...(j.results ?? {}), ...newResults }, when: "방금" }
+              ? {
+                  ...j,
+                  status: allFailed ? "failed" : "done",
+                  results: { ...(j.results ?? {}), ...newResults },
+                  failedJobInfo: { ...(j.failedJobInfo ?? {}), ...newFailedInfo },
+                  when: "방금",
+                }
               : j,
           ),
         );
-        if (!allFailed) navigate(`/jobs/${uiJobId}`);
+        navigate(`/jobs/${uiJobId}`);
       }
     }, 1500);
   };
@@ -594,9 +618,12 @@ export default function App() {
           const allSettled = g.jobs.every(j => ['done', 'failed', 'cancelled'].includes(j.status));
           const status = allFailed ? 'failed' : anyActive ? 'running' : allSettled ? 'done' : 'pending';
           const results: Record<number, JobResult> = {};
+          const failedJobInfo: Record<number, FailedJobInfo> = {};
           for (const j of g.jobs) {
             if (j.status === 'done' && j.result_image_id && j.metrics) {
               results[j.model_id] = { metrics: j.metrics, result_image_id: j.result_image_id, elapsed_seconds: j.elapsed_seconds ?? undefined };
+            } else if (j.status === 'failed') {
+              failedJobInfo[j.model_id] = { message: j.message ?? "오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", error_detail: j.error_detail };
             }
           }
           return {
@@ -607,6 +634,7 @@ export default function App() {
             when: formatRelativeTime(g.created_at),
             src_image_id: g.image_id,
             results: Object.keys(results).length > 0 ? results : undefined,
+            failedJobInfo: Object.keys(failedJobInfo).length > 0 ? failedJobInfo : undefined,
           };
         });
         setJobs([...serverJobs, ...MOCK_JOBS]);
@@ -637,7 +665,7 @@ export default function App() {
         activeJobId={activeJobId}
         onSelectJob={(id) => {
           const job = jobs.find((j) => j.id === id);
-          if (job?.status === "done") navigate(`/jobs/${id}`);
+          if (job?.status === "done" || job?.status === "failed") navigate(`/jobs/${id}`);
         }}
         onJobTerminate={handleJobTerminate}
       />
@@ -660,19 +688,20 @@ export default function App() {
             flexDirection: "column",
           }}
         >
-          {viewingJob && activeJob?.results ? (
+          {viewingJob && (activeJob?.results || activeJob?.failedJobInfo) ? (
             <div style={{ flex: 1, overflow: "auto" }}>
-              {activeModels.length === 1 ? (
+              {activeModels.length === 1 && !activeJob.failedJobInfo?.[activeModels[0].id] ? (
                 <SingleResult
                   model={activeModels[0]}
-                  result={activeJob.results[activeModels[0].id]}
+                  result={activeJob.results![activeModels[0].id]}
                   srcImageId={activeJob.src_image_id}
                 />
               ) : (
                 <MultiDashboard
                   key={activeJob.id}
                   models={activeModels}
-                  results={activeJob.results}
+                  results={activeJob.results ?? {}}
+                  failedJobs={activeJob.failedJobInfo ?? {}}
                   srcImageId={activeJob.src_image_id}
                 />
               )}

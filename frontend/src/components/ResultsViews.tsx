@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { METRIC_DEFS } from "../data";
-import type { MetricDef, ModelUi, JobResult } from "../types";
+import type { MetricDef, ModelUi, JobResult, FailedJobInfo } from "../types";
 import Icon from "./Icon";
 import { WsiView } from "./WsiImage";
 import { getImageUrl, getTargetImageUrl } from '../api';
@@ -97,6 +97,83 @@ function Divider() {
   return <div style={{ width: 1, background: "var(--border)", alignSelf: "stretch" }} />;
 }
 
+// 실패 모델 행 — 오류 상세 토글 포함
+function FailedModelRow({ model, failedInfo }: { model: ModelUi; failedInfo: FailedJobInfo }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(failedInfo.error_detail ?? "").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
+  return (
+    <div style={{ padding: "16px 20px", borderTop: "1px solid var(--divider)" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+        {/* 모델명 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, paddingTop: 2 }}>
+          <span className="chip" style={{ background: `color-mix(in oklab, ${model.tint} 12%, var(--panel))`, color: model.tint, borderColor: `color-mix(in oklab, ${model.tint} 30%, transparent)` }}>
+            {model.name}
+          </span>
+        </div>
+        {/* 메시지 + 상세 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", whiteSpace: "pre-line", lineHeight: 1.7 }}>
+            {failedInfo.message}
+          </div>
+          {failedInfo.error_detail && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setExpanded(v => !v)}
+                style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-dim)", padding: 0 }}
+              >
+                <Icon name={expanded ? "chevron-up" : "chevron-down"} size={12} />
+                오류 상세 {expanded ? "접기" : "보기"}
+              </button>
+              {expanded && (
+                <div style={{ marginTop: 6, position: "relative" }}>
+                  <pre style={{ margin: 0, padding: "10px 36px 10px 12px", borderRadius: "var(--r-sm)", background: "var(--bg-sunken)", fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.6 }}>
+                    {failedInfo.error_detail}
+                  </pre>
+                  <button
+                    onClick={handleCopy}
+                    title="복사"
+                    style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", cursor: "pointer", color: copied ? "var(--success)" : "var(--text-dim)", padding: 2 }}
+                  >
+                    <Icon name={copied ? "check" : "copy"} size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 이미지 그리드와 비교표 사이 실패 섹션
+function FailedModelsSection({ models, failedJobs }: { models: ModelUi[]; failedJobs: Record<number, FailedJobInfo> }) {
+  const failedModels = models.filter(m => failedJobs[m.id]);
+  if (failedModels.length === 0) return null;
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>실패한 모델</div>
+        <span className="chip" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444", borderColor: "rgba(239,68,68,0.2)", fontSize: 10 }}>
+          {failedModels.length}개
+        </span>
+      </div>
+      {failedModels.map(m => (
+        <FailedModelRow key={m.id} model={m} failedInfo={failedJobs[m.id]} />
+      ))}
+    </div>
+  );
+}
+
 // 결과 이미지 카드 — 메트릭 오버레이 포함
 function ResultCard({
   model,
@@ -161,6 +238,26 @@ function ResultCard({
 
 export function SingleResult({ model, result, srcImageId }: { model: ModelUi; result: JobResult; srcImageId?: string }) {
   const seed = 7;
+
+  const handleDownload = async () => {
+    if (!result.result_image_id) return;
+    try {
+      const res = await fetch(getImageUrl(result.result_image_id));
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${model.name}_normalized.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      alert('다운로드에 실패했습니다.');
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -188,7 +285,19 @@ export function SingleResult({ model, result, srcImageId }: { model: ModelUi; re
             intensity={0.8}
             chip={model.name}
             chipColor={model.tint}
-          />
+          >
+            <div style={{ position: "absolute", bottom: 8, right: 8 }}>
+              <button
+                className="icon-btn"
+                style={{ background: "rgba(15,22,41,0.75)", backdropFilter: "blur(6px)", color: "#fff", borderRadius: 6 }}
+                disabled={!result.result_image_id}
+                onClick={handleDownload}
+                title="결과 이미지 다운로드"
+              >
+                <Icon name="download" size={14} />
+              </button>
+            </div>
+          </WsiView>
         </div>
       </div>
 
@@ -201,7 +310,7 @@ export function SingleResult({ model, result, srcImageId }: { model: ModelUi; re
   );
 }
 
-export function MultiDashboard({ models, results, srcImageId }: { models: ModelUi[]; results: Record<number, JobResult>; srcImageId?: string }) {
+export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }: { models: ModelUi[]; results: Record<number, JobResult>; failedJobs?: Record<number, FailedJobInfo>; srcImageId?: string }) {
   const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
   const [hiddenModels, setHiddenModels] = useState<Set<number>>(new Set());
   const seed = 7;
@@ -215,7 +324,9 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
     });
   };
 
-  const sorted = [...models].sort((a, b) => {
+  // 성공 모델만 메트릭 기준으로 정렬
+  const successModels = models.filter(m => !failedJobs[m.id]);
+  const sorted = [...successModels].sort((a, b) => {
     const def = METRIC_DEFS.find((d) => d.key === sortKey);
     const missing = def?.higherBetter ? -Infinity : Infinity;
     const A = results[a.id]?.metrics[sortKey] ?? missing;
@@ -230,11 +341,11 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
   // 2개: 우측 2열 그리드에 gridColumn:1 강제 → 상하 배치, 이미지 W/3
   // 3-4개: 2열, 5-6개: 3열
   const rightCols = visibleCount <= 4 ? 2 : 3;
-  const outerCols = `1fr 1px ${rightCols}fr`;
+  const outerCols = visibleCount > 0 ? `1fr 1px ${rightCols}fr` : "1fr";
 
   const best: Record<string, number> = {};
   METRIC_DEFS.forEach((def) => {
-    const vals = models
+    const vals = successModels
       .filter((m) => results[m.id]?.metrics[def.key as keyof (typeof results)[number]["metrics"]] != null)
       .map((m) => ({ id: m.id, v: results[m.id].metrics[def.key as keyof (typeof results)[number]["metrics"]] }));
     vals.sort((x, y) => (def.higherBetter ? y.v - x.v : x.v - y.v));
@@ -269,7 +380,7 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}>
-      {/* 헤더: 모델 chip에 눈 토글 내장 */}
+      {/* 헤더: 성공 모델 chip — 전체 클릭으로 숨기기 토글 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>결과 비교 대시보드</div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -279,6 +390,9 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
               <div
                 key={m.id}
                 className="chip"
+                role="button"
+                onClick={() => toggleModel(m.id)}
+                title={isHidden ? `${m.name} 표시` : `${m.name} 숨기기`}
                 style={{
                   background: `color-mix(in oklab, ${m.tint} 12%, var(--panel))`,
                   color: m.tint,
@@ -286,130 +400,142 @@ export function MultiDashboard({ models, results, srcImageId }: { models: ModelU
                   display: "flex", alignItems: "center", gap: 4,
                   opacity: isHidden ? 0.55 : 1,
                   transition: "opacity 150ms",
+                  cursor: "pointer",
+                  userSelect: "none",
                 }}
               >
                 {m.name}
-                <button
-                  onClick={() => toggleModel(m.id)}
-                  title={isHidden ? `${m.name} 표시` : `${m.name} 숨기기`}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, padding: 0, background: "none", border: "none", cursor: "pointer", color: "inherit" }}
-                >
-                  <Icon name={isHidden ? "eye-off" : "eye"} size={11} strokeWidth={2} />
-                </button>
+                <Icon name={isHidden ? "eye-off" : "eye"} size={11} strokeWidth={2} />
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* 왼쪽: 원본+타겟 | 구분선 | 오른쪽: 결과 그리드 */}
-      <div style={{ display: "grid", gridTemplateColumns: outerCols, gap: "0 14px", alignItems: "start" }}>
-        <LeftPanel srcImageId={srcImageId} seed={seed} />
-        <Divider />
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${rightCols}, 1fr)`, gap: 12, alignContent: "start" }}>
-          {visibleSorted.map((m, i) => (
-            <ResultCard
-              key={m.id}
-              model={m}
-              result={results[m.id]}
-              best={best}
-              seed={seed}
-              onRatioDetected={undefined}
-              onDownload={handleDownload}
-              style={visibleCount === 2 ? { gridColumn: 1 } : undefined}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* 비교표 */}
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>비교표</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
-            정렬
-            {METRIC_DEFS.map((def) => (
-              <button
-                key={def.key}
-                onClick={() => setSortKey(def.key)}
-                className="btn sm"
-                style={{ background: sortKey === def.key ? "var(--accent-50)" : "transparent", color: sortKey === def.key ? "var(--accent-600)" : "var(--text-muted)", height: 24, padding: "0 8px", fontWeight: 500 }}
-              >
-                {def.label}
-              </button>
+      {/* 왼쪽: 원본+타겟 | 구분선 | 오른쪽: 결과 그리드 (성공 모델만) */}
+      {visibleCount > 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: outerCols, gap: "0 14px", alignItems: "start" }}>
+          <LeftPanel srcImageId={srcImageId} seed={seed} />
+          <Divider />
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${rightCols}, 1fr)`, gap: 12, alignContent: "start" }}>
+            {visibleSorted.map((m) => (
+              <ResultCard
+                key={m.id}
+                model={m}
+                result={results[m.id]}
+                best={best}
+                seed={seed}
+                onRatioDetected={undefined}
+                onDownload={handleDownload}
+                style={visibleCount === 2 ? { gridColumn: 1 } : undefined}
+              />
             ))}
           </div>
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              <th style={thStyle}>모델</th>
-              <th style={thStyle}>분류</th>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 640 }}>
+          <div className="card fade-up" style={{ padding: 12 }}>
+            <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" />
+          </div>
+          <div className="card fade-up" style={{ padding: 12 }}>
+            <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
+          </div>
+        </div>
+      )}
+
+      {/* 실패 모델 섹션 */}
+      <FailedModelsSection models={models} failedJobs={failedJobs} />
+
+      {/* 비교표 (성공 모델만) */}
+      {tableSorted.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>비교표</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
+              정렬
               {METRIC_DEFS.map((def) => (
-                <th key={def.key} style={{ ...thStyle, textAlign: "right" }}>
-                  {def.label} <span style={{ color: "var(--text-dim)", fontWeight: 400 }}>({refLabel(def)})</span>
-                </th>
+                <button
+                  key={def.key}
+                  onClick={() => setSortKey(def.key)}
+                  className="btn sm"
+                  style={{ background: sortKey === def.key ? "var(--accent-50)" : "transparent", color: sortKey === def.key ? "var(--accent-600)" : "var(--text-muted)", height: 24, padding: "0 8px", fontWeight: 500 }}
+                >
+                  {def.label}
+                </button>
               ))}
-              <th style={{ ...thStyle, textAlign: "right" }}>처리 시간</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tableSorted.map((m) => {
-              const r = results[m.id];
-              const hidden = hiddenModels.has(m.id);
-              if (hidden) {
+            </div>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                <th style={thStyle}>모델</th>
+                <th style={thStyle}>분류</th>
+                {METRIC_DEFS.map((def) => (
+                  <th key={def.key} style={{ ...thStyle, textAlign: "right" }}>
+                    {def.label} <span style={{ color: "var(--text-dim)", fontWeight: 400 }}>({refLabel(def)})</span>
+                  </th>
+                ))}
+                <th style={{ ...thStyle, textAlign: "right" }}>처리 시간</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableSorted.map((m) => {
+                const r = results[m.id];
+                const hidden = hiddenModels.has(m.id);
+                if (hidden) {
+                  return (
+                    <tr key={m.id} style={{ borderTop: "1px solid var(--divider)" }}>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint, opacity: 0.4 }} />
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-dim)" }}>{m.name}</div>
+                          <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 표시`} style={{ color: "var(--text-dim)" }}>
+                            <Icon name="eye-off" size={14} />
+                          </button>
+                        </div>
+                      </td>
+                      <td style={tdStyle} />
+                      {METRIC_DEFS.map((def) => <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} />)}
+                      <td style={{ ...tdStyle, textAlign: "right" }} />
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={m.id} style={{ borderTop: "1px solid var(--divider)" }}>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint, opacity: 0.4 }} />
-                        <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-dim)" }}>{m.name}</div>
-                        <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 표시`} style={{ color: "var(--text-dim)" }}>
-                          <Icon name="eye-off" size={14} />
+                        <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint }} />
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</div>
+                        <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 숨기기`} style={{ color: "var(--text-muted)" }}>
+                          <Icon name="eye" size={14} />
                         </button>
                       </div>
                     </td>
-                    <td style={tdStyle} />
-                    {METRIC_DEFS.map((def) => <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} />)}
-                    <td style={{ ...tdStyle, textAlign: "right" }} />
+                    <td style={tdStyle}>
+                      <span className="chip">{m.category === "Classical" ? "알고리즘 기반" : "딥러닝 모델"}</span>
+                    </td>
+                    {METRIC_DEFS.map((def) => {
+                      const isBest = best[def.key] === m.id;
+                      const val = r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
+                      return (
+                        <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} className="num">
+                          <span style={{ fontWeight: isBest ? 700 : 500, color: metricColor(def, val) }}>
+                            {isBest && <span style={{ marginRight: 4, color: "var(--text-muted)" }}>★</span>}
+                            {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...tdStyle, textAlign: "right" }} className="num">
+                      <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{formatElapsed(r?.elapsed_seconds)}</span>
+                    </td>
                   </tr>
                 );
-              }
-              return (
-                <tr key={m.id} style={{ borderTop: "1px solid var(--divider)" }}>
-                  <td style={tdStyle}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint }} />
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</div>
-                      <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 숨기기`} style={{ color: "var(--text-muted)" }}>
-                        <Icon name="eye" size={14} />
-                      </button>
-                    </div>
-                  </td>
-                  <td style={tdStyle}>
-                    <span className="chip">{m.category === "Classical" ? "알고리즘 기반" : "딥러닝 모델"}</span>
-                  </td>
-                  {METRIC_DEFS.map((def) => {
-                    const isBest = best[def.key] === m.id;
-                    const val = r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
-                    return (
-                      <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} className="num">
-                        <span style={{ fontWeight: isBest ? 700 : 500, color: metricColor(def, val) }}>
-                          {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
-                          {isBest && <span style={{ marginLeft: 4, color: "var(--text-muted)" }}>★</span>}
-                        </span>
-                      </td>
-                    );
-                  })}
-                  <td style={{ ...tdStyle, textAlign: "right" }} className="num">
-                    <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{formatElapsed(r?.elapsed_seconds)}</span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

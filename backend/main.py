@@ -3,10 +3,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import models, jobs, images
 from backend.db import init_db
+from backend.services.cleanup import cleanup_old_data
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    cleanup_old_data()
     yield
 
 

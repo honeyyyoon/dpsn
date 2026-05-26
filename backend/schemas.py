@@ -22,6 +22,7 @@ class JobResultResponse(BaseModel):
     status: str
     result_image_id: str
     metrics: dict
+    elapsed_seconds: float
 
 class JobListItem(BaseModel):
     id: str
@@ -30,6 +31,7 @@ class JobListItem(BaseModel):
     progress: float
     result_image_id: str | None
     metrics: Any | None
+    elapsed_seconds: float | None
 
 class JobGroupResponse(BaseModel):
     group_id: str

@@ -80,7 +80,7 @@ def run_job(job_id: str, model_id: int, image_id: str):
 
     try:
         src_path = image_store.get_image_path(image_id)
-        tgt_path = DATA_DIR / "scc_01_cs2_level3.jpg"
+        tgt_path = image_store.get_target_image_path()
         task = Task(
             src_img_path=Path(src_path),
             target_img_path=Path(tgt_path),

@@ -47,7 +47,7 @@ def create_job(model_id: int, image_id: str, background_tasks: BackgroundTasks,
         conn.execute(
             """
             INSERT INTO jobs (id, group_id, model_id, image_id, wsi_name, status, progress, message)
-            VALUES (?, ?, ?, ?, ?, 'pending', 0, 'Job created. Waiting to start.')
+            VALUES (?, ?, ?, ?, ?, 'pending', 0, '작업이 생성되었습니다. 시작을 기다리는 중...')
             """,
             (job_id, group_id, model_id, image_id, wsi_name),
         )
@@ -70,7 +70,7 @@ def update_job(job_id: str, status: str, progress: int, message: str):
 
 # AI 모델을 실행하고 결과(이미지·metrics)를 DB에 저장; 취소·오류 발생 시 상태 업데이트
 def run_job(job_id: str, model_id: int, image_id: str):
-    update_job(job_id, "running", 0, "Running...")
+    update_job(job_id, "running", 0, "실행 중...")
 
     def emit_event(status: str, progress: int, message: str):
         job = get_job(job_id)
@@ -110,8 +110,8 @@ def run_job(job_id: str, model_id: int, image_id: str):
         traceback.print_exc()
         with get_conn() as conn:
             conn.execute(
-                "UPDATE jobs SET status = 'failed', message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (str(e), job_id),
+                "UPDATE jobs SET status = 'failed', message = ?, error_detail = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                ("오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", str(e), job_id),
             )
 
 

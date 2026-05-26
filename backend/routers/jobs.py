@@ -33,6 +33,8 @@ async def list_jobs():
             model_id=row["model_id"],
             status=row["status"],
             progress=row["progress"],
+            message=row.get("message"),
+            error_detail=row.get("error_detail"),
             result_image_id=row.get("result_image_id"),
             metrics=metrics,
             elapsed_seconds=elapsed,
@@ -99,6 +101,7 @@ async def get_job(job_id: str):
         status=job["status"],
         progress=job.get("progress", 0),
         message=job.get("message", ""),
+        error_detail=job.get("error_detail", ""),
     )
 
 

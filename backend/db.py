@@ -43,6 +43,7 @@ def init_db() -> None:
             status TEXT NOT NULL DEFAULT 'pending',
             progress REAL NOT NULL DEFAULT 0,
             message TEXT NOT NULL DEFAULT '',
+            error_detail TEXT NOT NULL DEFAULT '',
             cancelled INTEGER NOT NULL DEFAULT 0,
             result_image_id TEXT,
             metrics TEXT,
@@ -51,3 +52,7 @@ def init_db() -> None:
             FOREIGN KEY (image_id) REFERENCES images(id)
         )
         """)
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass

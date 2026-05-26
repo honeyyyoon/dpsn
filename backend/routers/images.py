@@ -3,17 +3,20 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from backend.services import image_store
-from backend.db import DATA_DIR
 
 router = APIRouter()
 
-TARGET_IMAGE_PATH = DATA_DIR / "H06_00.tiff"
-
 @router.get("/images/target")
 async def get_target_image():
-    if not TARGET_IMAGE_PATH.is_file():
+    try:
+        path = image_store.get_target_image_path(thumbnail=True)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Target image not found")
-    return FileResponse(TARGET_IMAGE_PATH)
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Target thumbnail not found on disk")
+
+    return FileResponse(file_path)
 
 # image_id로 저장된 이미지 파일을 반환
 @router.get("/images/{image_id}")

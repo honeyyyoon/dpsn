@@ -7,6 +7,7 @@ DB_PATH = DATA_DIR / "app.db"
 
 Path(DATA_DIR / "results").mkdir(parents=True, exist_ok=True)
 Path(DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
+Path(DATA_DIR / "target").mkdir(parents=True, exist_ok=True)
 Path(DATA_DIR / "thumbnails").mkdir(parents=True, exist_ok=True)
 
 

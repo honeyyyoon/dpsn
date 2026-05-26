@@ -11,16 +11,20 @@ class Metric:
         use_ssim: bool = True,
         use_psnr: bool = True,
         use_fid: bool = True,
-        target_patch: np.ndarray | torch.Tensor | None = None
+        target_patch: np.ndarray | torch.Tensor | None = None,
+        fid_feature: int = 64,
+        precision: int = 6
     ):
         self.use_ssim = use_ssim
         self.use_psnr = use_psnr
         self.use_fid = use_fid
         self.fid_device = torch.device("cpu")
+        self.fid_feature = fid_feature
+        self.precision = precision
 
         if self.use_fid:
             self.fid = FrechetInceptionDistance(
-                feature=2048,
+                feature=self.fid_feature,
                 normalize=False,
             ).to(self.fid_device)
 
@@ -138,12 +142,12 @@ class Metric:
     def finalize(self) -> dict:
         if self.use_fid:
             self.fid = self.fid.to(self.fid_device)
-            self.scores['fid'] = float(self.fid.compute().item())
+            self.scores['fid'] = max(0.0, float(self.fid.compute().item()))
 
         return {
-            "ssim": self.scores['ssim'] / self.counts['ssim'] if self.use_ssim else None,
-            "psnr": self.scores['psnr'] / self.counts['psnr'] if self.use_psnr else None,
-            "fid": self.scores['fid'] if self.use_fid else None,
+            "ssim": round(self.scores['ssim'] / self.counts['ssim'], 6) if self.use_ssim else None,
+            "psnr": round(self.scores['psnr'] / self.counts['psnr'], 6) if self.use_psnr else None,
+            "fid": round(self.scores['fid'], 6) if self.use_fid else None,
         }
 
     def _to_bchw_tensor(self, patch: torch.Tensor) -> torch.Tensor:
@@ -160,7 +164,7 @@ class Metric:
 
     def _to_metric_float(self, patch: torch.Tensor) -> torch.Tensor:
         patch = patch.to(dtype=torch.float32)
-        if patch.max() <= 1.0:
+        if float(patch.max().detach().cpu().item()) <= 1.0:
             patch = patch * 255.0
 
         return patch.clamp(0, 255)

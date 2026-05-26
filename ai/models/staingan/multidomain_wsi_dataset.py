@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -129,6 +130,7 @@ class MultiDomainWSIPatchDataset(Dataset):
             read_level=self.read_level,
             strict_mpp_check=self.strict_mpp_check,
             result_dir=sampler_result_dir,
+            verbose=self.verbose,
         )
 
         sample_iter = tqdm(
@@ -247,9 +249,16 @@ class MultiDomainWSIPatchDataset(Dataset):
     def _open(self, record: SlideRecord) -> WSIHandle:
         handle = self.handles.get(record.path)
         if handle is None:
+            self._log(f"Opening WSI: scanner={record.scanner_id} path={record.path.name}")
+            start = time.perf_counter()
             handle = open_wsi_handle(record.path)
             handle = self._with_scanner_mpp_fallback(handle, record.scanner_id)
             self.handles[record.path] = handle
+            self._log(
+                f"Opened {record.path.name} in {time.perf_counter() - start:.2f}s "
+                f"dims={handle.level_dimensions} downsamples={handle.level_downsamples} "
+                f"mpp={handle.mpp}"
+            )
         return handle
 
     def _with_scanner_mpp_fallback(self, handle: WSIHandle, scanner_id: str) -> WSIHandle:

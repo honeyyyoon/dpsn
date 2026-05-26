@@ -27,6 +27,7 @@ import json
 import logging
 import math
 import random
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -98,6 +99,7 @@ class PatchSampler:
         min_mask_region_area: int = 256,          # eliminating connected tissue region after tissue masking
         strict_mpp_check: bool = True,            # whether sampler should fail if the WSI is missing MPP metadata
         result_dir: str | Path = "result",        # folder where outputs get saved:
+        verbose: bool = False,
     ) -> None:
         if patch_size <= 0:
             raise ValueError(f"patch_size must be > 0, got {patch_size}")
@@ -133,6 +135,7 @@ class PatchSampler:
         self.morphology_kernel_size = morphology_kernel_size
         self.min_mask_region_area = min_mask_region_area
         self.strict_mpp_check = strict_mpp_check
+        self.verbose = bool(verbose)
         self.result_dir = Path(result_dir)
         self.result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -169,6 +172,10 @@ class PatchSampler:
 
         logger.addHandler(file_handler)
         return logger
+
+    def _console(self, message: str) -> None:
+        if self.verbose:
+            print(f"[PatchSampler] {message}", flush=True)
     
     # Main function
     def sample(
@@ -199,6 +206,14 @@ class PatchSampler:
         if mode not in {"training", "inference"}: #check that mode is valid
             raise ValueError(f"mode must be 'training' or 'inference', got {mode}")
 
+        sample_start = time.perf_counter()
+        self._console(
+            f"sample start image={wsi_handle.image_path.name} mode={mode} "
+            f"patch_size={self.patch_size} read_level={self.read_level} "
+            f"dims={wsi_handle.level_dimensions} downsamples={wsi_handle.level_downsamples} "
+            f"mpp={wsi_handle.mpp}"
+        )
+
         if self.strict_mpp_check: #Check whether slide has valid mpp values
             self._validate_mpp(wsi_handle)
 
@@ -212,7 +227,10 @@ class PatchSampler:
         self.logger.info("seed=%s", seed)
 
         #Building tisue mask
+        self._console("building tissue mask...")
+        step_start = time.perf_counter()
         mask_bundle = self._build_tissue_mask(wsi_handle) #returns mask, thumbnail, and mask level
+        self._console(f"built tissue mask in {time.perf_counter() - step_start:.2f}s")
         tissue_mask = mask_bundle["mask"] #binary array of 1s (tissue) and 0s (background)
         thumbnail_rgb = mask_bundle["thumbnail_rgb"] #rgb image at low res
         mask_level = mask_bundle["mask_level"] #level used to make the mask
@@ -222,11 +240,16 @@ class PatchSampler:
             else self.inference_tissue_threshold
         )
 
+        self._console("generating patch refs...")
+        step_start = time.perf_counter()
         patch_refs = self._generate_patch_refs( #iterate over slides and create PatchRef
             wsi_handle=wsi_handle,
             tissue_mask=tissue_mask,
             mask_level=mask_level,
             tissue_threshold=tissue_threshold,
+        )
+        self._console(
+            f"generated {len(patch_refs)} valid patch refs in {time.perf_counter() - step_start:.2f}s"
         )
 
         if not patch_refs: #if no valid patches exist
@@ -249,6 +272,7 @@ class PatchSampler:
                 max_patches,
                 original_count,
             )
+            self._console(f"subsampled {max_patches} / {original_count} patch refs")
         elif mode == "inference":
             # keep deterministic top-to-bottom, left-to-right order
             pass
@@ -266,6 +290,10 @@ class PatchSampler:
         #log final patch count
         self.logger.info("final_patch_count=%d", len(patch_refs))
         self.logger.info("Sampling completed successfully.")
+        self._console(
+            f"sample finished final_patch_count={len(patch_refs)} "
+            f"elapsed={time.perf_counter() - sample_start:.2f}s"
+        )
         return patch_refs
 
     def _validate_mpp(self, wsi_handle: WSIHandle) -> None:
@@ -312,11 +340,18 @@ class PatchSampler:
         level_w, level_h = wsi_handle.level_dimensions[mask_level] #getting width and height at the chosen level
 
         self.logger.info("Selected mask_level=%d with dimensions=%s", mask_level, (level_w, level_h)) #log chosen level
+        self._console(f"selected mask_level={mask_level} dims={(level_w, level_h)}")
 
         ref = wsi_handle.make_ref((0, 0), mask_level, (level_w, level_h))
+        self._console("loading mask-level thumbnail patch...")
+        load_start = time.perf_counter()
         rgb = load_patch(ref).img.transpose([1, 2, 0])
+        self._console(
+            f"loaded thumbnail patch shape={rgb.shape} in {time.perf_counter() - load_start:.2f}s"
+        )
         thumbnail_rgb = rgb.copy()
 
+        mask_start = time.perf_counter()
         gray = self._rgb_to_gray(rgb)               # [0, 1] Convert RBG image to grayscale
         sat = self._rgb_to_saturation(rgb)          # [0, 1] Computes saturation
         otsu_t = self._otsu_threshold(gray)         # Computes automatic threshold from grayscale image
@@ -326,6 +361,7 @@ class PatchSampler:
         tissue = white_mask & dark_or_saturated # combined condition for being a tissue; rough binary mask
 
         tissue = self._clean_binary_mask(tissue) #filling holes, removing tiny components, etc
+        self._console(f"computed/cleaned tissue mask in {time.perf_counter() - mask_start:.2f}s")
 
         tissue_ratio = float(tissue.mean()) # computing how much of thumbnail is tissue
         self.logger.info("Otsu threshold (gray) = %.6f", otsu_t)

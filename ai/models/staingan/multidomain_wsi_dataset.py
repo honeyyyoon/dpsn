@@ -9,6 +9,12 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 
+try:
+    from tqdm.auto import tqdm
+except ModuleNotFoundError:
+    def tqdm(iterable, **_: object):
+        return iterable
+
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
@@ -68,6 +74,7 @@ class MultiDomainWSIPatchDataset(Dataset):
         seed: int = 0,
         scanner_mpp: dict[str, float] | None = None,
         sampler_result_dir: str | Path = "result/staingan_patch_sampler",
+        verbose: bool = False,
     ) -> None:
         self.dataset_dir = Path(dataset_dir)
         self.canonical_domain = canonical_domain
@@ -79,6 +86,7 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.recursive = bool(recursive)
         self.seed = int(seed)
         self.scanner_mpp = {**DEFAULT_SCANNER_MPP, **(scanner_mpp or {})}
+        self.verbose = bool(verbose)
 
         if not self.dataset_dir.is_dir():
             raise FileNotFoundError(f"Dataset directory not found: {self.dataset_dir}")
@@ -92,6 +100,9 @@ class MultiDomainWSIPatchDataset(Dataset):
             )
 
         self.records_by_sample = self._discover_records()
+        self._log(
+            f"Discovered {len(self.records_by_sample)} sample(s) in {self.dataset_dir}"
+        )
         if sample_ids is not None:
             wanted = set(sample_ids)
             self.records_by_sample = {
@@ -103,6 +114,10 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.sample_ids = sorted(self.records_by_sample)
         if not self.sample_ids:
             raise ValueError("No samples found for the requested split.")
+        self._log(
+            f"Using {len(self.sample_ids)} sample(s): {', '.join(self.sample_ids[:8])}"
+            + (" ..." if len(self.sample_ids) > 8 else "")
+        )
 
         self.handles: dict[Path, WSIHandle] = {}
         self.source_items: list[tuple[SlideRecord, PatchRef]] = []
@@ -116,7 +131,14 @@ class MultiDomainWSIPatchDataset(Dataset):
             result_dir=sampler_result_dir,
         )
 
-        for sample_id in self.sample_ids:
+        sample_iter = tqdm(
+            self.sample_ids,
+            desc="StainGAN dataset sample scan",
+            unit="sample",
+            leave=False,
+            disable=not self.verbose,
+        )
+        for sample_id in sample_iter:
             records = self.records_by_sample[sample_id]
             canonical = records.get(self.canonical_domain)
             if canonical is None:
@@ -128,6 +150,10 @@ class MultiDomainWSIPatchDataset(Dataset):
             for scanner_id, record in sorted(records.items()):
                 if scanner_id == self.canonical_domain:
                     continue
+                self._log(
+                    f"Sampling patches: sample={sample_id} source={scanner_id} "
+                    f"target={self.canonical_domain} path={record.path.name}"
+                )
                 handle = self._open(record)
                 patch_size = self._read_size_for_handle(handle, scanner_id)
                 sampler.patch_size = patch_size
@@ -140,9 +166,13 @@ class MultiDomainWSIPatchDataset(Dataset):
                     save_debug=False,
                 )
                 self.source_items.extend((record, ref) for ref in refs)
+                self._log(
+                    f"  sampled {len(refs)} patch(es), total_source_patches={len(self.source_items)}"
+                )
 
         if not self.source_items:
             raise ValueError("No non-canonical source patches were sampled.")
+        self._log(f"Finished dataset initialization with {len(self.source_items)} source patch item(s).")
 
     @property
     def source_domains(self) -> list[str]:
@@ -203,6 +233,10 @@ class MultiDomainWSIPatchDataset(Dataset):
                 path=path,
             )
         return records
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(f"[MultiDomainWSIPatchDataset] {message}", flush=True)
 
     def _parse_name(self, path: Path) -> tuple[str, str] | None:
         match = re.match(r"^scc_(?P<sample>.+)_(?P<scanner>[^_]+)$", path.stem)

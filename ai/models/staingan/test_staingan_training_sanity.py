@@ -56,25 +56,35 @@ def run_sanity_check(
     dataset_dir: Path | None,
     image_size: int,
     device_name: str,
+    verbose: bool,
+    sample_ids: list[str],
+    patches_per_source_slide: int,
 ) -> None:
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     if dataset_dir is None:
+        print("[sanity] Building synthetic multiscanner dataset...", flush=True)
         temp_dir = tempfile.TemporaryDirectory()
         dataset_dir = build_synthetic_multiscanner_dataset(Path(temp_dir.name))
 
+    print(f"[sanity] Dataset directory: {dataset_dir}", flush=True)
+    print("[sanity] Initializing MultiDomainWSIPatchDataset...", flush=True)
     dataset = MultiDomainWSIPatchDataset(
         dataset_dir=dataset_dir,
         canonical_domain="nz210",
-        sample_ids=["01", "02", "03"],
+        sample_ids=sample_ids,
         image_size=image_size,
         target_mpp=0.25,
-        patches_per_source_slide=2,
+        patches_per_source_slide=patches_per_source_slide,
         strict_mpp_check=False,
         seed=7,
         sampler_result_dir=Path(tempfile.gettempdir()) / "staingan_sanity_sampler",
+        verbose=verbose,
     )
+    print(f"[sanity] Dataset initialized with {len(dataset)} patch item(s).", flush=True)
+    print("[sanity] Loading first paired sample...", flush=True)
     sample = dataset[0]
 
+    print("[sanity] Creating model objects...", flush=True)
     device = select_device(device_name, gpu_ids=())
     config = StainGANTrainingConfig(
         dataset_dir=dataset_dir,
@@ -87,6 +97,7 @@ def run_sanity_check(
     )
     generator, discriminator = create_models(config, device)
 
+    print("[sanity] Preparing tensors...", flush=True)
     source = torch.from_numpy(np.stack([sample["source"], sample["source"]], axis=0)).to(
         device=device,
         dtype=torch.float32,
@@ -95,10 +106,13 @@ def run_sanity_check(
         np.stack([sample["canonical"], sample["canonical"]], axis=0)
     ).to(device=device, dtype=torch.float32)
 
+    print("[sanity] Running generator forward pass...", flush=True)
     fake = generator(source)
     same = generator(canonical)
+    print("[sanity] Running discriminator forward pass...", flush=True)
     pred_real = discriminator(canonical)
     pred_fake = discriminator(fake)
+    print("[sanity] Computing grayscale content loss...", flush=True)
     loss_content = content_loss(source, fake, "grayscale_l1")
 
     if fake.shape != source.shape:
@@ -127,6 +141,9 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-dir", type=Path, default=None)
     parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--sample-ids", nargs="+", default=["01"])
+    parser.add_argument("--patches-per-source-slide", type=int, default=1)
     return parser
 
 
@@ -136,6 +153,9 @@ def main() -> None:
         dataset_dir=args.dataset_dir,
         image_size=args.image_size,
         device_name=args.device,
+        verbose=args.verbose,
+        sample_ids=args.sample_ids,
+        patches_per_source_slide=args.patches_per_source_slide,
     )
 
 

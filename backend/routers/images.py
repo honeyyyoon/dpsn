@@ -7,7 +7,7 @@ from backend.db import DATA_DIR
 
 router = APIRouter()
 
-TARGET_IMAGE_PATH = DATA_DIR / "H06_00.tiff"
+TARGET_IMAGE_PATH = DATA_DIR / "scc_01_cs2_level3.jpg"
 
 @router.get("/images/target")
 async def get_target_image():

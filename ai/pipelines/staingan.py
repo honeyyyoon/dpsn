@@ -38,7 +38,7 @@ class StainGANInferenceConfig:
     output_nc: int = 3
     ngf: int = 64
     generator_blocks: int = 9
-    generator_direction: str = "a2b"
+    generator_direction: str = "source_to_canonical"
 
     patch_size: int = 512
     stride: int = 512
@@ -209,9 +209,10 @@ class StainGANPipeline(ModelPipeline):
             raise ValueError("tile_size must be > 0")
         if self.config.pyramid_levels < 0:
             raise ValueError("pyramid_levels must be >= 0")
-        if self.config.generator_direction not in {"a2b", "b2a"}:
+        if self.config.generator_direction not in {"source_to_canonical", "a2b", "b2a"}:
             raise ValueError(
-                f"generator_direction must be 'a2b' or 'b2a', got {self.config.generator_direction!r}"
+                "generator_direction must be 'source_to_canonical', 'a2b', or 'b2a', "
+                f"got {self.config.generator_direction!r}"
             )
         
     # Build the generator and load trained weights into it
@@ -305,6 +306,7 @@ class StainGANPipeline(ModelPipeline):
     def _extract_state_dict(self, checkpoint: Any) -> dict[str, torch.Tensor]:
         if isinstance(checkpoint, dict): #if the checkpoint is a dict, defined preferred keys
             preferred_keys = ( #the list of key names it will search for
+                "g_source_to_canonical_state_dict",
                 f"g_{self.config.generator_direction}_state_dict", ##directional generator key (a to b or b to a)
                 "g_a2b_state_dict", 
                 "g_b2a_state_dict",
@@ -341,6 +343,15 @@ class StainGANPipeline(ModelPipeline):
     # normalizes them into the numeric range the model expects, runs them through the StainGAN generator, 
     # and converts the outputs back into regular image arrays (uint8)
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]: #input is a list of NumPy arrays, each shaped like (C, H, W)
+        return self._normalize_patch_batch(patches_chw)
+
+    def _normalize_patch_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]:
+        """
+        Normalize a batch of CHW uint8 patches.
+
+        This method is intentionally patch-level so future pseudo-pair export can
+        call it and save original patches next to their StainGAN-normalized outputs.
+        """
         batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
         tensor = torch.from_numpy(batch).to(
             device=self.device,

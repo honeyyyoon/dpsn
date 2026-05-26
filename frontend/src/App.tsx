@@ -555,19 +555,20 @@ export default function App() {
       if (finishedSet.size >= jobIds.length) {
         if (pollingRef.current) clearInterval(pollingRef.current);
         setRunning(false);
-        const allFailed = Object.keys(newFailedInfo).length === jobIds.length;
+        const allNewFailed = Object.keys(newFailedInfo).length === jobIds.length;
         setJobs((prev) =>
-          prev.map((j) =>
-            j.id === uiJobId
-              ? {
-                  ...j,
-                  status: allFailed ? "failed" : "done",
-                  results: { ...(j.results ?? {}), ...newResults },
-                  failedJobInfo: { ...(j.failedJobInfo ?? {}), ...newFailedInfo },
-                  when: "방금",
-                }
-              : j,
-          ),
+          prev.map((j) => {
+            if (j.id !== uiJobId) return j;
+            const mergedResults = { ...(j.results ?? {}), ...newResults };
+            const hasAnySuccess = Object.keys(mergedResults).length > 0;
+            return {
+              ...j,
+              status: allNewFailed && !hasAnySuccess ? "failed" : "done",
+              results: mergedResults,
+              failedJobInfo: { ...(j.failedJobInfo ?? {}), ...newFailedInfo },
+              when: "방금",
+            };
+          }),
         );
         navigate(`/jobs/${uiJobId}`);
       }

@@ -44,6 +44,21 @@ export async function deleteJob(jobId: string): Promise<void> {
     throw new Error(`Failed to delete job: ${jobId}`);
 }
 
+export async function addModels(
+  imageId: string,
+  modelIds: number[],
+  groupId: string,
+  wsiName: string,
+): Promise<JobResponse[]> {
+  const res = await fetch(`${BASE}/jobs/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_id: imageId, model_ids: modelIds, group_id: groupId, wsi_name: wsiName }),
+  });
+  if (!res.ok) throw new Error('Failed to add models');
+  return res.json();
+}
+
 export async function fetchJobs(): Promise<JobGroupResponse[]> {
   const res = await fetch(`${BASE}/jobs`);
   if (!res.ok) throw new Error("Failed to fetch jobs");

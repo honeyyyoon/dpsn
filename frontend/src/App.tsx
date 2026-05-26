@@ -4,11 +4,12 @@ import { useNavigate, useMatch } from "react-router-dom";
 import "./styles.css";
 import { MODELS } from "./data";
 import type { UiJob, JobResult, FailedJobInfo } from "./types";
-import { createJobs, getJobStatus, getJobResult, deleteJob, fetchJobs } from "./api";
+import { createJobs, addModels, getJobStatus, getJobResult, deleteJob, fetchJobs, getImageUrl } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
 import { UploadCard, ModelPicker } from "./components/ConfigPanel";
 import { SingleResult, MultiDashboard } from "./components/ResultsViews";
+import { AddModelModal } from "./components/AddModelModal";
 
 function Topbar({
   file,
@@ -484,6 +485,7 @@ export default function App() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [running, setRunning] = useState(false);
   const [jobs, setJobs] = useState<UiJob[]>(MOCK_JOBS);
+  const [addModelJob, setAddModelJob] = useState<UiJob | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -598,6 +600,54 @@ export default function App() {
     }
   };
 
+  const handleAddModels = async (job: UiJob, newModelIds: number[]) => {
+    setAddModelJob(null);
+    if (!job.src_image_id || newModelIds.length === 0) return;
+    setRunning(true);
+    setJobs(prev => prev.map(j => j.id === job.id
+      ? { ...j, status: 'running' as const, modelIds: [...j.modelIds, ...newModelIds], progress: 0 }
+      : j
+    ));
+    try {
+      const responses = await addModels(job.src_image_id, newModelIds, job.id, job.wsi);
+      startPolling(job.id, responses.map(r => r.job_id), newModelIds);
+    } catch (err) {
+      console.error(err);
+      setRunning(false);
+      setJobs(prev => prev.map(j => j.id === job.id
+        ? { ...j, status: 'done' as const, modelIds: j.modelIds.filter(id => !newModelIds.includes(id)) }
+        : j
+      ));
+    }
+  };
+
+  const handleDownloadAll = async (job: UiJob) => {
+    const results = job.results ?? {};
+    const targets = MODELS
+      .filter(m => results[m.id]?.result_image_id)
+      .map(m => ({ name: m.name, imageId: results[m.id].result_image_id }));
+    if (targets.length === 0) return;
+
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    await Promise.all(targets.map(async ({ name, imageId }) => {
+      try {
+        const res = await fetch(getImageUrl(imageId));
+        if (!res.ok) return;
+        zip.file(`${name}_normalized.png`, await res.blob());
+      } catch { /* 개별 이미지 실패 시 나머지 계속 */ }
+    }));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${job.wsi}_results.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const run = () => {
     if (!file || selected.size === 0 || running) return;
     const wsiName = file.name.replace(/\.[^/.]+$/, "");
@@ -671,7 +721,16 @@ export default function App() {
           if (job?.status === "done" || job?.status === "failed") navigate(`/jobs/${id}`);
         }}
         onJobTerminate={handleJobTerminate}
+        onAddModels={(job) => setAddModelJob(job)}
+        onDownloadAll={handleDownloadAll}
       />
+      {addModelJob && (
+        <AddModelModal
+          job={addModelJob}
+          onConfirm={(newModelIds) => handleAddModels(addModelJob, newModelIds)}
+          onCancel={() => setAddModelJob(null)}
+        />
+      )}
       <div className="main">
         <Topbar
           file={file}

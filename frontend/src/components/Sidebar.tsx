@@ -4,6 +4,7 @@ import { MODELS } from '../data';
 import type { UiJob } from '../types';
 import Icon from './Icon';
 
+
 function JobStatusBadge({ status }: { status: UiJob['status'] }) {
   if (status === 'done')
     return <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'color-mix(in oklab, var(--success) 15%, var(--panel))', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="check" size={10} strokeWidth={2.5}/></span>;
@@ -68,9 +69,11 @@ interface JobItemProps {
   active: boolean;
   onClick: () => void;
   onJobTerminate: (jobId: string) => void;
+  onAddModels: (job: UiJob) => void;
+  onDownloadAll: (job: UiJob) => void;
 }
 
-function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
+function JobItem({ job, active, onClick, onJobTerminate, onAddModels, onDownloadAll }: JobItemProps) {
   const [hover, setHover] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -83,6 +86,9 @@ function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
     ? (MODELS.find(m => m.id === job.modelIds[0])?.name || '')
     : `방법 ${modelCount}개`;
 
+  const canAddModel = !!job.src_image_id && job.modelIds.length < MODELS.length;
+  const hasResults = Object.values(job.results ?? {}).some(r => r.result_image_id);
+
   const getMenuItems = (): MenuItem[] => {
     if (isRunning) return [
       { label: '중단', danger: true, action: () => {
@@ -91,8 +97,8 @@ function JobItem({ job, active, onClick, onJobTerminate }: JobItemProps) {
     ];
     if (job.status === 'done') return [
       { label: '결과 보기', action: onClick },
-      { label: '모델 추가', disabled: true, action: () => {} },
-      { label: '결과 다운로드', disabled: true, action: () => {} },
+      { label: '모델 추가', disabled: !canAddModel, action: () => onAddModels(job) },
+      { label: '결과 다운로드', disabled: !hasResults, action: () => onDownloadAll(job) },
       { label: '삭제', danger: true, action: () => {
         if (window.confirm(`"${job.wsi}" 작업을 삭제하시겠습니까?`)) onJobTerminate(job.id);
       }},
@@ -169,9 +175,11 @@ interface SidebarProps {
   activeJobId: string | null;
   onSelectJob: (jobId: string) => void;
   onJobTerminate: (jobId: string) => void;
+  onAddModels: (job: UiJob) => void;
+  onDownloadAll: (job: UiJob) => void;
 }
 
-export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate }: SidebarProps) {
+export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate, onAddModels, onDownloadAll }: SidebarProps) {
   const navigate = useNavigate();
   return (
     <aside className="sidebar">
@@ -205,6 +213,8 @@ export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate
             active={j.id === activeJobId}
             onClick={() => onSelectJob(j.id)}
             onJobTerminate={onJobTerminate}
+            onAddModels={onAddModels}
+            onDownloadAll={onDownloadAll}
           />
         ))}
       </div>

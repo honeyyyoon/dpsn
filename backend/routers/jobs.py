@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, BackgroundTasks
-from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem
+from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem, AddModelsRequest
 from backend.services import job_runner, image_store
 
 router = APIRouter()
@@ -87,6 +87,24 @@ async def create_job(
             with get_conn() as conn:
                 conn.execute("UPDATE jobs SET group_id = ? WHERE id = ?", (group_id, job_id))
         responses.append(JobResponse(job_id=job_id, image_id=image_id))
+    return responses
+
+
+# 기존 그룹에 모델 추가
+@router.post("/jobs/add", response_model=list[JobResponse])
+async def add_models_to_group(background_tasks: BackgroundTasks, req: AddModelsRequest):
+    if not req.model_ids:
+        raise HTTPException(status_code=400, detail="model_ids must not be empty")
+    responses = []
+    for mid in req.model_ids:
+        job_id = job_runner.create_job(
+            model_id=mid,
+            image_id=req.image_id,
+            background_tasks=background_tasks,
+            group_id=req.group_id,
+            wsi_name=req.wsi_name,
+        )
+        responses.append(JobResponse(job_id=job_id, image_id=req.image_id))
     return responses
 
 

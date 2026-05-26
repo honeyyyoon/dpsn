@@ -123,24 +123,23 @@ export function ModelPicker({ selected, onToggle }: ModelPickerProps) {
   const classical = MODELS.filter(m => m.category === 'Classical');
   const learning  = MODELS.filter(m => m.category === 'Learning-based');
 
-  const categoryHeader = (title: string, badge: string) => (
+  const categoryHeader = (title: string) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, whiteSpace: 'nowrap' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{title}</div>
-      <div style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 500 }}>{badge}</div>
     </div>
   );
 
   return (
     <div className="model-categories">
       <div>
-        {categoryHeader('알고리즘 기반 방법', 'CPU')}
+        {categoryHeader('알고리즘 기반 방법')}
         <div style={{ display: 'grid', gap: 8 }}>
           {classical.map(m => <ModelCard key={m.id} model={m} selected={selected.has(m.id)} onToggle={() => onToggle(m.id)}/>)}
         </div>
       </div>
       <div className="model-categories-divider"/>
       <div>
-        {categoryHeader('딥러닝 모델', 'GPU')}
+        {categoryHeader('딥러닝 모델')}
         <div style={{ display: 'grid', gap: 8 }}>
           {learning.map(m => <ModelCard key={m.id} model={m} selected={selected.has(m.id)} onToggle={() => onToggle(m.id)}/>)}
         </div>

@@ -33,6 +33,10 @@ export default function Icon({ name, size = 18, color = 'currentColor', strokeWi
       return <svg {...common}><path d="M15 6l-6 6 6 6"/></svg>;
     case 'chevron-down':
       return <svg {...common}><path d="M6 9l6 6 6-6"/></svg>;
+    case 'chevron-up':
+      return <svg {...common}><path d="M18 15l-6-6-6 6"/></svg>;
+    case 'copy':
+      return <svg {...common}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>;
     case 'check':
       return <svg {...common}><path d="M5 12l5 5 9-11"/></svg>;
     case 'plus':

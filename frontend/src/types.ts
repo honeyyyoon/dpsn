@@ -16,6 +16,7 @@ export interface JobStatusResponse {
   status: 'pending' | 'running' | 'done' | 'failed';
   progress: number;
   message: string;
+  error_detail?: string;
 }
 
 export interface JobResultResponse {
@@ -49,11 +50,18 @@ export interface JobResult {
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
+export interface FailedJobInfo {
+  message: string;
+  error_detail?: string;
+}
+
 export interface JobListItem {
   id: string;
   model_id: number;
   status: JobStatus;
   progress: number;
+  message?: string;
+  error_detail?: string;
   result_image_id: string | null;
   metrics: JobResultResponse['metrics'] | null;
   elapsed_seconds: number | null;
@@ -76,5 +84,6 @@ export interface UiJob {
   progress?: number;
   src_image_id?: string;
   results?: Record<number, JobResult>;
+  failedJobInfo?: Record<number, FailedJobInfo>;
   imageFingerprint?: string;
 }

@@ -4,7 +4,7 @@ import { METRIC_DEFS } from "../data";
 import type { MetricDef, ModelUi, JobResult } from "../types";
 import Icon from "./Icon";
 import { WsiView } from "./WsiImage";
-import { getImageUrl, getTargetImageUrl } from "../api";
+import { getImageDownloadUrl, getImageUrl, getTargetImageUrl } from "../api";
 
 function metricColor(def: MetricDef, value: number): string {
   const passed = def.higherBetter ? value >= def.ref : value <= def.ref;
@@ -478,12 +478,17 @@ export function MultiDashboard({
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
       const filename = `${safeModelName || "model"}_stain_normalized.tiff`;
+      const res = await fetch(getImageDownloadUrl(imageId, filename));
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = getImageDownloadUrl(imageId, filename);
+      a.href = blobUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error("Download failed:", error);
       alert("다운로드에 실패했습니다.");

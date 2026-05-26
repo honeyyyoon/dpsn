@@ -1,24 +1,9 @@
 import json
-import logging
-import os
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, BackgroundTasks
 from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem
 from backend.services import job_runner, image_store
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-DEBUG_PROGRESS = os.environ.get("DPSN_DEBUG_PROGRESS", "").lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-
-
-def _debug_progress(message: str) -> None:
-    if DEBUG_PROGRESS:
-        print(message, flush=True)
-        logger.info(message)
 
 
 # 전체 job을 group_id 기준으로 묶어 JobGroupResponse 목록으로 반환
@@ -99,10 +84,6 @@ async def get_job(job_id: str):
     job = job_runner.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _debug_progress(
-        f"[progress:poll] job={job_id} status={job['status']} "
-        f"progress={job.get('progress', 0)} message={job.get('message', '')}"
-    )
     return JobStatusResponse(
         job_id=job_id,
         status=job["status"],

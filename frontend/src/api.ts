@@ -1,7 +1,6 @@
 import type { Model, JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://10.10.40.182:8000';
-const DEBUG_PROGRESS = import.meta.env.VITE_DEBUG_PROGRESS === 'true';
 
 export async function getModels(): Promise<Model[]> {
   const res = await fetch(`${BASE}/models`);
@@ -21,17 +20,7 @@ export async function createJobs(imageFile: File, modelIds: number[]): Promise<J
 export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
   const res = await fetch(`${BASE}/jobs/${jobId}`);
   if (!res.ok) throw new Error(`Failed to get job status: ${jobId}`);
-  const status = await res.json();
-  if (DEBUG_PROGRESS) {
-    console.debug(
-      '[progress:frontend-poll]',
-      jobId,
-      status.status,
-      status.progress,
-      status.message,
-    );
-  }
-  return status;
+  return res.json();
 }
 
 export async function getJobResult(jobId: string): Promise<JobResultResponse> {

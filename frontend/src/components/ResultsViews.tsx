@@ -478,18 +478,14 @@ export function MultiDashboard({
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
       const filename = `${safeModelName || "model"}_stain_normalized.tiff`;
-      const res = await fetch(getImageDownloadUrl(imageId, filename));
-      if (!res.ok) throw new Error(`${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = blobUrl;
+      a.href = getImageDownloadUrl(imageId, filename);
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
-    } catch {
+    } catch (error) {
+      console.error("Download failed:", error);
       alert("다운로드에 실패했습니다.");
     }
   };

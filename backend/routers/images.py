@@ -38,5 +38,6 @@ async def get_image(
     download_name = Path(filename).name if filename else file_path.name
     return FileResponse(
         file_path,
+        media_type="application/octet-stream" if download else None,
         filename=download_name if download else None,
     )

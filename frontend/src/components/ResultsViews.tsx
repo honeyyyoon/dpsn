@@ -106,7 +106,7 @@ function FailedModelRow({ model, failedInfo }: { model: ModelUi; failedInfo: Fai
     navigator.clipboard.writeText(failedInfo.error_detail ?? "").then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }).catch(() => {});
   };
 
   return (

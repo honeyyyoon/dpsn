@@ -13,7 +13,7 @@ export interface JobResponse {
 
 export interface JobStatusResponse {
   job_id: string;
-  status: 'pending' | 'running' | 'done' | 'failed';
+  status: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
   progress: number;
   message: string;
   error_detail?: string;

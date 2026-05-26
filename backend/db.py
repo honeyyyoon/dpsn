@@ -30,7 +30,7 @@ def init_db() -> None:
         """)
         try:
             conn.execute("ALTER TABLE images ADD COLUMN original_filename TEXT")
-        except Exception:
+        except sqlite3.OperationalError:
             pass
 
         conn.execute("""
@@ -54,5 +54,5 @@ def init_db() -> None:
         """)
         try:
             conn.execute("ALTER TABLE jobs ADD COLUMN error_detail TEXT NOT NULL DEFAULT ''")
-        except Exception:
+        except sqlite3.OperationalError:
             pass

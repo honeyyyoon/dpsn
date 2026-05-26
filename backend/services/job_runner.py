@@ -115,14 +115,15 @@ def run_job(job_id: str, model_id: int, image_id: str):
             )
 
 
-# 실행 중이면 취소 플래그 설정, 완료·실패면 DB에서 삭제
+# 그룹 전체를 취소(실행 중) 또는 삭제(완료·실패)
 def delete_job(job_id: str):
     job = get_job(job_id)
     if not job:
         return
+    group_id = job["group_id"]
     if job["status"] in ("running", "pending"):
         with get_conn() as conn:
-            conn.execute("UPDATE jobs SET cancelled = 1 WHERE id = ?", (job_id,))
+            conn.execute("UPDATE jobs SET cancelled = 1 WHERE group_id = ?", (group_id,))
     else:
         with get_conn() as conn:
-            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            conn.execute("DELETE FROM jobs WHERE group_id = ?", (group_id,))

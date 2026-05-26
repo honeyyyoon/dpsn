@@ -66,7 +66,10 @@ class Reinhard(ModelPipeline):
         self._log_wsi_info("source", src_wsi_handle)
         self._log_wsi_info("target", target_wsi_handle)
 
-        patch_sampler = PatchSampler(strict_mpp_check=False)
+        patch_sampler = PatchSampler(
+            training_tissue_threshold=0.3,
+            strict_mpp_check=False
+        )
         src_images = self._sample_patch_images(
             patch_sampler=patch_sampler,
             wsi_handle=src_wsi_handle,

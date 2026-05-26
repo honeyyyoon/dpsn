@@ -11,12 +11,14 @@ class Metric:
         use_ssim: bool = True,
         use_psnr: bool = True,
         use_fid: bool = True,
-        target_patch: np.ndarray | torch.Tensor | None = None
+        target_patch: np.ndarray | torch.Tensor | None = None,
+        precision: int = 6
     ):
         self.use_ssim = use_ssim
         self.use_psnr = use_psnr
         self.use_fid = use_fid
         self.fid_device = torch.device("cpu")
+        self.precision = precision
 
         if self.use_fid:
             self.fid = FrechetInceptionDistance(
@@ -141,9 +143,9 @@ class Metric:
             self.scores['fid'] = float(self.fid.compute().item())
 
         return {
-            "ssim": self.scores['ssim'] / self.counts['ssim'] if self.use_ssim else None,
-            "psnr": self.scores['psnr'] / self.counts['psnr'] if self.use_psnr else None,
-            "fid": self.scores['fid'] if self.use_fid else None,
+            "ssim": round(self.scores['ssim'] / self.counts['ssim'], 6) if self.use_ssim else None,
+            "psnr": round(self.scores['psnr'] / self.counts['psnr'], 6) if self.use_psnr else None,
+            "fid": round(self.scores['fid'], 6) if self.use_fid else None,
         }
 
     def _to_bchw_tensor(self, patch: torch.Tensor) -> torch.Tensor:

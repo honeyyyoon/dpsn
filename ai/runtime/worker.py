@@ -39,7 +39,7 @@ class Worker:
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            ["ssim", "psnr"],
+            ["ssim", "psnr", "fid"],
             emit_event=emit_event
         )
         metrics = Metrics(

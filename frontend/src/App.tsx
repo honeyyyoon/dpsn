@@ -647,7 +647,7 @@ export default function App() {
             results: Object.keys(results).length > 0 ? results : undefined,
           };
         });
-        setJobs(serverJobs);
+        setJobs([...serverJobs, ...MOCK_JOBS]);
       })
       .catch(() => {});
     return () => {

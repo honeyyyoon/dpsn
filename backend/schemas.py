@@ -42,3 +42,9 @@ class JobGroupResponse(BaseModel):
     image_id: str
     created_at: str
     jobs: list[JobListItem]
+
+class AddModelsRequest(BaseModel):
+    image_id: str
+    group_id: str
+    model_ids: list[int]
+    wsi_name: str = ""

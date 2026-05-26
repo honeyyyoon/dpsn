@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, BackgroundTasks
-from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem
+from backend.schemas import JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse, JobListItem, AddModelsRequest
 from backend.services import job_runner, image_store
 
 router = APIRouter()
@@ -47,6 +47,8 @@ async def list_jobs():
                 created_at=row["created_at"],
                 jobs=[],
             )
+        elif row["created_at"] < groups[gid].created_at:
+            groups[gid].created_at = row["created_at"]
         groups[gid].jobs.append(item)
     return list(groups.values())
 
@@ -87,6 +89,33 @@ async def create_job(
             with get_conn() as conn:
                 conn.execute("UPDATE jobs SET group_id = ? WHERE id = ?", (group_id, job_id))
         responses.append(JobResponse(job_id=job_id, image_id=image_id))
+    return responses
+
+
+# 기존 그룹에 모델 추가 — image_id 재사용, 그룹 존재 여부 및 image_id 일치 검증
+@router.post("/jobs/add", response_model=list[JobResponse])
+async def add_models_to_group(background_tasks: BackgroundTasks, req: AddModelsRequest):
+    group = job_runner.get_group(req.group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group["image_id"] != req.image_id:
+        raise HTTPException(status_code=400, detail="image_id does not match the existing group")
+
+    model_ids = list(dict.fromkeys(req.model_ids))  # 순서 유지하며 중복 제거
+    if not model_ids:
+        raise HTTPException(status_code=400, detail="model_ids must not be empty")
+
+    wsi_name = req.wsi_name or group["wsi_name"]
+    responses = []
+    for mid in model_ids:
+        job_id = job_runner.create_job(
+            model_id=mid,
+            image_id=req.image_id,
+            background_tasks=background_tasks,
+            group_id=req.group_id,
+            wsi_name=wsi_name,
+        )
+        responses.append(JobResponse(job_id=job_id, image_id=req.image_id))
     return responses
 
 

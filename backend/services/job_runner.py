@@ -30,6 +30,16 @@ def get_job(job_id: str) -> dict | None:
     return _row_to_dict(row)
 
 
+# group_id로 그룹의 대표 정보(image_id, wsi_name) 조회
+def get_group(group_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT image_id, wsi_name FROM jobs WHERE group_id = ? LIMIT 1",
+            (group_id,)
+        ).fetchone()
+    return _row_to_dict(row)
+
+
 # 전체 job 목록을 최신순으로 조회
 def get_all_jobs() -> list[dict]:
     with get_conn() as conn:

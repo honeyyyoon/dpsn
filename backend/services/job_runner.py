@@ -23,6 +23,12 @@ DEBUG_PROGRESS = os.environ.get("DPSN_DEBUG_PROGRESS", "").lower() in {
 }
 
 
+def _debug_progress(message: str) -> None:
+    if DEBUG_PROGRESS:
+        print(message, flush=True)
+        logger.info(message)
+
+
 class JobCancelledError(Exception):
     pass
 
@@ -66,14 +72,10 @@ def create_job(model_id: int, image_id: str, background_tasks: BackgroundTasks,
 
 # job 상태·진행률·메시지를 DB에 업데이트
 def update_job(job_id: str, status: str, progress: int, message: str):
-    if DEBUG_PROGRESS:
-        logger.info(
-            "[progress:update] job=%s status=%s progress=%s message=%s",
-            job_id,
-            status,
-            progress,
-            message,
-        )
+    _debug_progress(
+        f"[progress:update] job={job_id} status={status} "
+        f"progress={progress} message={message}"
+    )
     with get_conn() as conn:
         conn.execute(
             """
@@ -87,19 +89,15 @@ def update_job(job_id: str, status: str, progress: int, message: str):
 
 # AI 모델을 실행하고 결과(이미지·metrics)를 DB에 저장; 취소·오류 발생 시 상태 업데이트
 def run_job(job_id: str, model_id: int, image_id: str):
+    _debug_progress(f"[job:start] job={job_id} model_id={model_id} image_id={image_id}")
     logger.info("[job:start] job=%s model_id=%s image_id=%s", job_id, model_id, image_id)
     update_job(job_id, "running", 0, "Running...")
 
     def emit_event(status: str, progress: int, message: str):
-        if DEBUG_PROGRESS:
-            logger.info(
-                "[progress:emit_event] job=%s model_id=%s status=%s progress=%s message=%s",
-                job_id,
-                model_id,
-                status,
-                progress,
-                message,
-            )
+        _debug_progress(
+            f"[progress:emit_event] job={job_id} model_id={model_id} "
+            f"status={status} progress={progress} message={message}"
+        )
         job = get_job(job_id)
         if job and job.get("cancelled"):
             raise JobCancelledError(f"Job {job_id} was cancelled")
@@ -128,8 +126,13 @@ def run_job(job_id: str, model_id: int, image_id: str):
                 """,
                 (result_image_id, json.dumps(dataclasses.asdict(task_result.metrics)), job_id),
             )
+        _debug_progress(
+            f"[job:done] job={job_id} model_id={model_id} "
+            f"result_image_id={result_image_id}"
+        )
         logger.info("[job:done] job=%s model_id=%s result_image_id=%s", job_id, model_id, result_image_id)
     except JobCancelledError:
+        _debug_progress(f"[job:cancelled] job={job_id} model_id={model_id}")
         logger.info("[job:cancelled] job=%s model_id=%s", job_id, model_id)
         with get_conn() as conn:
             conn.execute(
@@ -137,6 +140,7 @@ def run_job(job_id: str, model_id: int, image_id: str):
                 (job_id,),
             )
     except Exception as e:
+        _debug_progress(f"[job:failed] job={job_id} model_id={model_id} error={e}")
         logger.exception("[job:failed] job=%s model_id=%s error=%s", job_id, model_id, e)
         print("Error:", e)
         traceback.print_exc()

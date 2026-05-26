@@ -4,7 +4,7 @@ import { METRIC_DEFS } from "../data";
 import type { MetricDef, ModelUi, JobResult, FailedJobInfo } from "../types";
 import Icon from "./Icon";
 import { WsiView } from "./WsiImage";
-import { getImageUrl, getTargetImageUrl } from '../api';
+import { getImageDownloadUrl, getImageUrl, getTargetImageUrl } from "../api";
 
 function metricColor(def: MetricDef, value: number): string {
   const passed = def.higherBetter ? value >= def.ref : value <= def.ref;
@@ -32,41 +32,137 @@ function MetricCard({ def, value }: MetricCardProps) {
   const color = metricColor(def, value);
   return (
     <div className="card" style={{ padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 4,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
           {def.label}
         </div>
-        <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{refLabel(def)}</span>
+        <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
+          {refLabel(def)}
+        </span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-        <div className="num" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", color }}>
+        <div
+          className="num"
+          style={{
+            fontSize: 26,
+            fontWeight: 600,
+            letterSpacing: "-0.02em",
+            color,
+          }}
+        >
           {def.key === "ssim" ? value.toFixed(3) : value.toFixed(2)}
         </div>
-        {def.unit && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{def.unit}</div>}
+        {def.unit && (
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {def.unit}
+          </div>
+        )}
       </div>
-      <div style={{ fontSize: 11, marginTop: 4, color: "var(--text-dim)" }}>{def.desc}</div>
+      <div style={{ fontSize: 11, marginTop: 4, color: "var(--text-dim)" }}>
+        {def.desc}
+      </div>
     </div>
   );
 }
 
-export function EmptyState({ hasFile, selectedCount }: { hasFile: boolean; selectedCount: number }) {
+export function EmptyState({
+  hasFile,
+  selectedCount,
+}: {
+  hasFile: boolean;
+  selectedCount: number;
+}) {
   const reasons = [];
   if (!hasFile) reasons.push({ icon: "upload", label: "WSI 이미지 업로드" });
-  if (selectedCount === 0) reasons.push({ icon: "layers", label: "정규화 방법 1개 이상 선택" });
+  if (selectedCount === 0)
+    reasons.push({ icon: "layers", label: "정규화 방법 1개 이상 선택" });
   return (
-    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div
+      style={{
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
       <div style={{ textAlign: "center", maxWidth: 420 }}>
-        <div style={{ width: 64, height: 64, margin: "0 auto 18px", borderRadius: 16, background: "var(--bg-sunken)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            margin: "0 auto 18px",
+            borderRadius: 16,
+            background: "var(--bg-sunken)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--text-muted)",
+          }}
+        >
           <Icon name="layers" size={28} />
         </div>
-        <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em" }}>정규화 준비 완료</div>
-        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>
-          왼쪽 패널에서 WSI와 모델을 선택하면 이곳에서 변환 전/후 비교와 메트릭을 확인할 수 있습니다.
+        <div
+          style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em" }}
+        >
+          정규화 준비 완료
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 22, maxWidth: 280, marginInline: "auto" }}>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>
+          왼쪽 패널에서 WSI와 모델을 선택하면 이곳에서 변환 전/후 비교와
+          메트릭을 확인할 수 있습니다.
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            marginTop: 22,
+            maxWidth: 280,
+            marginInline: "auto",
+          }}
+        >
           {reasons.map((r, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: "var(--r-md)", background: "var(--panel)", border: "1px solid var(--border)", fontSize: 13, color: "var(--text)", textAlign: "left" }}>
-              <div style={{ width: 22, height: 22, borderRadius: 6, background: "var(--accent-50)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 14px",
+                borderRadius: "var(--r-md)",
+                background: "var(--panel)",
+                border: "1px solid var(--border)",
+                fontSize: 13,
+                color: "var(--text)",
+                textAlign: "left",
+              }}
+            >
+              <div
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  background: "var(--accent-50)",
+                  color: "var(--accent)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 <Icon name={r.icon} size={13} />
               </div>
               {r.label}
@@ -79,11 +175,22 @@ export function EmptyState({ hasFile, selectedCount }: { hasFile: boolean; selec
 }
 
 // 왼쪽 패널: 원본 + 타겟 (세로 2개)
-function LeftPanel({ srcImageId, seed }: { srcImageId?: string; seed: number }) {
+function LeftPanel({
+  srcImageId,
+  seed,
+}: {
+  srcImageId?: string;
+  seed: number;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="card fade-up" style={{ padding: 12 }}>
-        <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" />
+        <WsiView
+          seed={seed}
+          src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
+          mode="dim"
+          chip="원본"
+        />
       </div>
       <div className="card fade-up" style={{ padding: 12 }}>
         <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
@@ -94,7 +201,11 @@ function LeftPanel({ srcImageId, seed }: { srcImageId?: string; seed: number }) 
 
 // 왼쪽↔오른쪽 구분선
 function Divider() {
-  return <div style={{ width: 1, background: "var(--border)", alignSelf: "stretch" }} />;
+  return (
+    <div
+      style={{ width: 1, background: "var(--border)", alignSelf: "stretch" }}
+    />
+  );
 }
 
 // 실패 모델 행 — 오류 상세 토글 포함
@@ -196,7 +307,11 @@ function ResultCard({
     <div className="card fade-up" style={{ padding: 12, ...style }}>
       <WsiView
         seed={seed}
-        src={result?.result_image_id ? getImageUrl(result.result_image_id, true) : undefined}
+        src={
+          result?.result_image_id
+            ? getImageUrl(result.result_image_id, true)
+            : undefined
+        }
         mode="norm"
         tint={model.tint}
         intensity={0.8}
@@ -204,17 +319,59 @@ function ResultCard({
         chipColor={model.tint}
         onRatioDetected={onRatioDetected}
       >
-        <div style={{ position: "absolute", bottom: 8, left: 8, right: 8, display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, flex: 1 }}>
+        <div
+          style={{
+            position: "absolute",
+            bottom: 8,
+            left: 8,
+            right: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 4,
+              flex: 1,
+            }}
+          >
             {METRIC_DEFS.map((def) => {
               const isBest = best[def.key] === model.id;
-              const val = result?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
+              const val =
+                result?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
               return (
-                <div key={def.key} style={{ padding: "5px 7px", borderRadius: "var(--r-sm)", background: "rgba(15,22,41,0.75)", backdropFilter: "blur(6px)" }}>
-                  <div style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>
-                    {def.label}{isBest && <span style={{ marginLeft: 3 }}>★</span>}
+                <div
+                  key={def.key}
+                  style={{
+                    padding: "5px 7px",
+                    borderRadius: "var(--r-sm)",
+                    background: "rgba(15,22,41,0.75)",
+                    backdropFilter: "blur(6px)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 8,
+                      color: "rgba(255,255,255,0.55)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {def.label}
+                    {isBest && <span style={{ marginLeft: 3 }}>★</span>}
                   </div>
-                  <div className="num" style={{ fontSize: 12, fontWeight: 600, color: metricColor(def, val) }}>
+                  <div
+                    className="num"
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: metricColor(def, val),
+                    }}
+                  >
                     {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
                   </div>
                 </div>
@@ -223,9 +380,18 @@ function ResultCard({
           </div>
           <button
             className="icon-btn"
-            style={{ flexShrink: 0, background: "rgba(15,22,41,0.75)", backdropFilter: "blur(6px)", color: "#fff", borderRadius: 6 }}
+            style={{
+              flexShrink: 0,
+              background: "rgba(15,22,41,0.75)",
+              backdropFilter: "blur(6px)",
+              color: "#fff",
+              borderRadius: 6,
+            }}
             disabled={!result?.result_image_id}
-            onClick={() => result?.result_image_id && onDownload(result.result_image_id, model.name)}
+            onClick={() =>
+              result?.result_image_id &&
+              onDownload(result.result_image_id, model.name)
+            }
             title="결과 이미지 다운로드"
           >
             <Icon name="download" size={14} />
@@ -236,7 +402,15 @@ function ResultCard({
   );
 }
 
-export function SingleResult({ model, result, srcImageId }: { model: ModelUi; result: JobResult; srcImageId?: string }) {
+export function SingleResult({
+  model,
+  result,
+  srcImageId,
+}: {
+  model: ModelUi;
+  result: JobResult;
+  srcImageId?: string;
+}) {
   const seed = 7;
 
   const handleDownload = async () => {
@@ -259,27 +433,55 @@ export function SingleResult({ model, result, srcImageId }: { model: ModelUi; re
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>결과 비교 대시보드</div>
+        <div
+          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}
+        >
+          결과 비교 대시보드
+        </div>
         <span className="chip accent dot">{model.name}</span>
         {result.elapsed_seconds != null && (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>처리 시간 {formatElapsed(result.elapsed_seconds)}</span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            처리 시간 {formatElapsed(result.elapsed_seconds)}
+          </span>
         )}
       </div>
 
       {/* 타겟 | 원본 | 결과 — 1행 3열, 이미지 크기 W/3 */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+        }}
+      >
         <div className="card fade-up" style={{ padding: 12 }}>
-          <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
-        </div>
-        <div className="card fade-up" style={{ padding: 12 }}>
-          <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" />
+          <WsiView
+            seed={seed}
+            src={getTargetImageUrl()}
+            mode="dim"
+            chip="타겟"
+          />
         </div>
         <div className="card fade-up" style={{ padding: 12 }}>
           <WsiView
             seed={seed}
-            src={result.result_image_id ? getImageUrl(result.result_image_id, true) : undefined}
+            src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
+            mode="dim"
+            chip="원본"
+          />
+        </div>
+        <div className="card fade-up" style={{ padding: 12 }}>
+          <WsiView
+            seed={seed}
+            src={
+              result.result_image_id
+                ? getImageUrl(result.result_image_id, true)
+                : undefined
+            }
             mode="norm"
             tint={model.tint}
             intensity={0.8}
@@ -301,9 +503,19 @@ export function SingleResult({ model, result, srcImageId }: { model: ModelUi; re
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+        }}
+      >
         {METRIC_DEFS.map((def) => (
-          <MetricCard key={def.key} def={def} value={result.metrics[def.key as keyof typeof result.metrics] ?? 0} />
+          <MetricCard
+            key={def.key}
+            def={def}
+            value={result.metrics[def.key as keyof typeof result.metrics] ?? 0}
+          />
         ))}
       </div>
     </div>
@@ -334,7 +546,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
     return def?.higherBetter ? B - A : A - B;
   });
 
-  const visibleSorted = sorted.filter(m => !hiddenModels.has(m.id));
+  const visibleSorted = sorted.filter((m) => !hiddenModels.has(m.id));
   const visibleCount = visibleSorted.length;
 
   // 열 수 & 외부 그리드 비율 — "1fr 1px Nfr" 공식으로 양쪽 이미지 크기 = W/(N+1)
@@ -354,35 +566,53 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
 
   const handleDownload = async (imageId: string, modelName: string) => {
     try {
-      const res = await fetch(getImageUrl(imageId));
+      const safeModelName = modelName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      const filename = `${safeModelName || "model"}_stain_normalized.tiff`;
+      const res = await fetch(getImageDownloadUrl(imageId, filename));
       if (!res.ok) throw new Error(`${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = `${modelName}_normalized.png`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
-    } catch {
-      alert('다운로드에 실패했습니다.');
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("다운로드에 실패했습니다.");
     }
   };
 
-  const thStyle: CSSProperties = { textAlign: "left", padding: "12px 20px", fontWeight: 600, fontSize: 12 };
-  const tdStyle: CSSProperties = { padding: "14px 20px", verticalAlign: "middle" };
+  const thStyle: CSSProperties = {
+    textAlign: "left",
+    padding: "12px 20px",
+    fontWeight: 600,
+    fontSize: 12,
+  };
+  const tdStyle: CSSProperties = {
+    padding: "14px 20px",
+    verticalAlign: "middle",
+  };
 
   const tableSorted = [
-    ...sorted.filter(m => !hiddenModels.has(m.id)),
-    ...sorted.filter(m => hiddenModels.has(m.id)),
+    ...sorted.filter((m) => !hiddenModels.has(m.id)),
+    ...sorted.filter((m) => hiddenModels.has(m.id)),
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24 }}>
       {/* 헤더: 성공 모델 chip — 전체 클릭으로 숨기기 토글 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>결과 비교 대시보드</div>
+        <div
+          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}
+        >
+          결과 비교 대시보드
+        </div>
         <div style={{ display: "flex", gap: 6 }}>
           {sorted.map((m) => {
             const isHidden = hiddenModels.has(m.id);
@@ -397,7 +627,9 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                   background: `color-mix(in oklab, ${m.tint} 12%, var(--panel))`,
                   color: m.tint,
                   borderColor: `color-mix(in oklab, ${m.tint} 30%, transparent)`,
-                  display: "flex", alignItems: "center", gap: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
                   opacity: isHidden ? 0.55 : 1,
                   transition: "opacity 150ms",
                   cursor: "pointer",
@@ -501,7 +733,10 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                   );
                 }
                 return (
-                  <tr key={m.id} style={{ borderTop: "1px solid var(--divider)" }}>
+                  <tr
+                    key={m.id}
+                    style={{ borderTop: "1px solid var(--divider)" }}
+                  >
                     <td style={tdStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint }} />

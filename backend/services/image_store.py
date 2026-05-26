@@ -186,6 +186,13 @@ def make_thumbnail(row: dict) -> str:
 
     return str(thumbnail_path)
 
+def _stored_path_to_absolute(path: str | Path) -> Path:
+    stored_path = Path(path)
+    if stored_path.is_absolute():
+        return stored_path
+    return DATA_DIR / stored_path
+
+
 # image_id로 저장된 파일 경로를 반환, 없으면 KeyError 발생
 def get_image_path(image_id: str, thumbnail: bool = False) -> str:
     
@@ -203,14 +210,14 @@ def get_image_path(image_id: str, thumbnail: bool = False) -> str:
         raise KeyError(f"Image not found for image_id: {image_id}")
     
     if not thumbnail:
-        return DATA_DIR / row["path"]
+        return str(_stored_path_to_absolute(row["path"]))
     
     if int(row["has_thumbnail"]) == 0:
         thumbnail_path = make_thumbnail(row)
     else:
         thumbnail_path = row['thumbnail_path']
     
-    return str(DATA_DIR / thumbnail_path)
+    return str(_stored_path_to_absolute(thumbnail_path))
 
 def enroll_image(path: Path) -> str:
     if not path.exists():

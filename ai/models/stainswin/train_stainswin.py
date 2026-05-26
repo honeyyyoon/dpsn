@@ -1,13 +1,13 @@
 """
 Run example:
 .venv/bin/python -m ai.models.stainswin.train_stainswin \
-  --train-source-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_aperio \
-  --train-target-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_hamamatsu \
-  --checkpoints-dir ai/checkpoints/stainswin \
-  --experiment-name stainswin_aperio_to_hamamatsu \
-  --image-size 256 \
-  --epochs 40 \
-  --device auto
+--train-source-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_aperio \
+--train-target-dir /mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_hamamatsu \
+--checkpoints-dir ai/checkpoints/stainswin \
+--experiment-name stainswin_aperio_to_hamamatsu \
+--image-size 256 \
+--epochs 40 \
+--device auto
 """
 
 

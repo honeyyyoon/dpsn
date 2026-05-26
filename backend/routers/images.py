@@ -20,7 +20,12 @@ async def get_target_image():
 
 # image_id로 저장된 이미지 파일을 반환
 @router.get("/images/{image_id}")
-async def get_image(image_id: str, thumbnail: bool = False):
+async def get_image(
+    image_id: str,
+    thumbnail: bool = False,
+    download: bool = False,
+    filename: str | None = None,
+):
     try:
         path = image_store.get_image_path(image_id, thumbnail)
     except KeyError:
@@ -30,4 +35,9 @@ async def get_image(image_id: str, thumbnail: bool = False):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Image file not found on disk")
 
-    return FileResponse(file_path)
+    download_name = Path(filename).name if filename else file_path.name
+    return FileResponse(
+        file_path,
+        media_type="application/octet-stream" if download else None,
+        filename=download_name if download else None,
+    )

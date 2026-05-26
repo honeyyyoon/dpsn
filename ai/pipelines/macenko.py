@@ -13,7 +13,7 @@ from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import open_wsi_handle, load_patch
-from ai.wsi.writer import ZarrWSIWriter
+from ai.wsi.writer import MultiZarrWSIWriter
 
 
 class MacenkoNormalizer:
@@ -321,7 +321,12 @@ class Macenko(ModelPipeline):
         src_refs = grid_sampler.sample(src_wsi_handle)
         self.logger.info(f"Sampled: {len(src_refs)}")
 
-        writer = self._build_writer(result_path, src_wsi_handle, src_refs, level)
+        writer = self._build_writer(
+            result_path=result_path,
+            src_wsi_handle=src_wsi_handle,
+            src_refs=src_refs,
+            level=level,
+        )
         timer = self._process_batches(
             src_refs=src_refs,
             writer=writer,
@@ -338,11 +343,12 @@ class Macenko(ModelPipeline):
         )
 
         output_path = writer.finalize()
+        writer.close()
 
         return PipelineResult(
             output_path=output_path,
             scores=metric.finalize(),
-            thumbnail_path=output_path,
+            thumbnail_path=None,
         )
 
     def _validate_config(self) -> None:
@@ -437,11 +443,11 @@ class Macenko(ModelPipeline):
         src_wsi_handle,
         src_refs,
         level: int,
-    ) -> ZarrWSIWriter:
-        return ZarrWSIWriter(
+    ) -> MultiZarrWSIWriter:
+        return MultiZarrWSIWriter(
             result_path,
-            src_wsi_handle.level_dimensions[0][0],
-            src_wsi_handle.level_dimensions[0][1],
+            src_wsi_handle.level_dimensions[level][0],
+            src_wsi_handle.level_dimensions[level][1],
             level_downsample=src_wsi_handle.level_downsamples[level],
             tile_size=src_refs[0].width,
         )
@@ -449,7 +455,7 @@ class Macenko(ModelPipeline):
     def _process_batches(
         self,
         src_refs,
-        writer: ZarrWSIWriter,
+        writer: MultiZarrWSIWriter,
         metric: Metric,
         normalizer: MacenkoNormalizer,
         emit_event=None,

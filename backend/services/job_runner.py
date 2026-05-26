@@ -88,12 +88,14 @@ def run_job(job_id: str, model_id: int, image_id: str):
             model_id=model_id
         )
         task_result = _worker.run(task, emit_event=emit_event)
+        update_job(job_id, "running", 99, "Registering result image.")
         result_image_id = image_store.enroll_image(task_result.result_img_path)
 
         with get_conn() as conn:
             conn.execute(
                 """
-                UPDATE jobs SET status = 'done', result_image_id = ?, metrics = ?,
+                UPDATE jobs SET status = 'done', progress = 100, message = 'Job completed.',
+                    result_image_id = ?, metrics = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,

@@ -1,19 +1,28 @@
-import type { Model, JobResponse, JobStatusResponse, JobResultResponse, JobGroupResponse } from './types';
+import type {
+  Model,
+  JobResponse,
+  JobStatusResponse,
+  JobResultResponse,
+  JobGroupResponse,
+} from "./types";
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://10.10.40.182:8000';
+const BASE = import.meta.env.VITE_API_BASE_URL ?? "http://10.10.40.182:8000";
 
 export async function getModels(): Promise<Model[]> {
   const res = await fetch(`${BASE}/models`);
-  if (!res.ok) throw new Error('Failed to fetch models');
+  if (!res.ok) throw new Error("Failed to fetch models");
   return res.json();
 }
 
-export async function createJobs(imageFile: File, modelIds: number[]): Promise<JobResponse[]> {
+export async function createJobs(
+  imageFile: File,
+  modelIds: number[],
+): Promise<JobResponse[]> {
   const form = new FormData();
-  form.append('image', imageFile);
-  form.append('model_ids', modelIds.join(','));
-  const res = await fetch(`${BASE}/jobs`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error('Failed to create jobs');
+  form.append("image", imageFile);
+  form.append("model_ids", modelIds.join(","));
+  const res = await fetch(`${BASE}/jobs`, { method: "POST", body: form });
+  if (!res.ok) throw new Error("Failed to create jobs");
   return res.json();
 }
 
@@ -30,21 +39,32 @@ export async function getJobResult(jobId: string): Promise<JobResultResponse> {
 }
 
 export async function deleteJob(jobId: string): Promise<void> {
-  const res = await fetch(`${BASE}/jobs/${jobId}`, { method: 'DELETE' });
-  if (!res.ok && res.status !== 404) throw new Error(`Failed to delete job: ${jobId}`);
+  const res = await fetch(`${BASE}/jobs/${jobId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 404)
+    throw new Error(`Failed to delete job: ${jobId}`);
 }
 
 export async function fetchJobs(): Promise<JobGroupResponse[]> {
   const res = await fetch(`${BASE}/jobs`);
-  if (!res.ok) throw new Error('Failed to fetch jobs');
+  if (!res.ok) throw new Error("Failed to fetch jobs");
   return res.json();
 }
 
-export function getImageUrl(imageId: string, thumbnail: boolean = false): string {
-  return `${BASE}/images/${imageId}${thumbnail ? '?thumbnail=true' : ''}`;
+export function getImageUrl(
+  imageId: string,
+  thumbnail: boolean = false,
+): string {
+  return `${BASE}/images/${imageId}${thumbnail ? "?thumbnail=true" : ""}`;
 }
 
+export function getImageDownloadUrl(
+  imageId: string,
+  filename?: string,
+): string {
+  const params = new URLSearchParams({ download: "true" });
+  if (filename) params.set("filename", filename);
+  return `${BASE}/images/${imageId}?${params.toString()}`;
+}
 export function getTargetImageUrl(): string {
   return `${BASE}/images/target`;
 }
-

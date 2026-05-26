@@ -24,10 +24,8 @@ class InvalidPipelineResultError(WorkerError):
 PIPELINE_MAP: dict[int, str] = {
     1: "ai.pipelines.reinhard:Reinhard",
     2: "ai.pipelines.macenko:Macenko",  
-    # 3: Vahadane(),  
-    4: "ai.pipelines.staingan:StainGANPipeline",  
     3: "ai.pipelines.vahadane:Vahadane",
-    # 4: StainGAN(),  
+    4: "ai.pipelines.staingan:StainGANPipeline",  
     5: "ai.pipelines.stainnet:StainNetPipeline",
     6: "ai.pipelines.stainswin:StainSWINPipeline",
 }
@@ -41,7 +39,7 @@ class Worker:
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            ["ssim", "psnr", "fid"],
+            ["ssim", "psnr"],
             emit_event=emit_event
         )
         metrics = Metrics(

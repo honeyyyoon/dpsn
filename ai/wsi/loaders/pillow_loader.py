@@ -9,7 +9,7 @@ from ai.wsi.loaders.base import Loader
 from ai.wsi.patch import Patch
 from ai.wsi.patch_ref import PatchRef
 
-class TiffFileLoader(Loader):
+class PillowLoader(Loader):
     def __init__(self):
         super().__init__()
     
@@ -20,7 +20,7 @@ class TiffFileLoader(Loader):
                 image_path=img_path,
                 dim=(img.width, img.height),
                 mpp=(-1, -1),
-                level_dimensions=(img.width, img.height),
+                level_dimensions=((img.width, img.height),),
                 level_downsamples=(1,)
             )
     

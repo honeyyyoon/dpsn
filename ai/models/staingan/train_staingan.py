@@ -10,6 +10,7 @@ Running example:
 --patches-per-source-slide 128 \
 --train-sample-count 36 \
 --val-sample-count 8
+--verbose
 """
 
 from __future__ import annotations
@@ -68,8 +69,8 @@ class StainGANTrainingConfig:
     discriminator_layers: int = 3
     batch_size: int = 4
     num_workers: int = 0
-    epochs_constant_lr: int = 25
-    epochs_decay_lr: int = 25
+    epochs_constant_lr: int = 20
+    epochs_decay_lr: int = 20
     lr: float = 0.0002
     beta1: float = 0.5
     lambda_identity: float = 5.0
@@ -79,6 +80,7 @@ class StainGANTrainingConfig:
     device: str = "auto"
     recursive: bool = False
     strict_mpp_check: bool = True
+    verbose: bool = False
     gpu_ids: tuple[int, ...] = (1, 2, 3)
 
     @property
@@ -101,6 +103,13 @@ def select_device(device: str, gpu_ids: tuple[int, ...] = (1, 2, 3)) -> torch.de
 def create_datasets(
     config: StainGANTrainingConfig,
 ) -> tuple[MultiDomainWSIPatchDataset, MultiDomainWSIPatchDataset]:
+    print(
+        "Preparing StainGAN datasets: "
+        f"dataset_dir={config.dataset_dir} canonical_domain={config.canonical_domain} "
+        f"train_sample_count={config.train_sample_count} val_sample_count={config.val_sample_count} "
+        f"patches_per_source_slide={config.patches_per_source_slide}",
+        flush=True,
+    )
     train_ids, val_ids = split_sample_ids(
         config.dataset_dir,
         train_count=config.train_sample_count,
@@ -112,7 +121,12 @@ def create_datasets(
         raise ValueError("Training split is empty.")
     if not val_ids:
         raise ValueError("Validation split is empty.")
+    print(
+        f"Split sample ids: train={train_ids} val={val_ids}",
+        flush=True,
+    )
 
+    print("Initializing training patch dataset...", flush=True)
     train_dataset = MultiDomainWSIPatchDataset(
         dataset_dir=config.dataset_dir,
         canonical_domain=config.canonical_domain,
@@ -125,7 +139,13 @@ def create_datasets(
         recursive=config.recursive,
         seed=config.split_seed,
         sampler_result_dir=Path("result") / "staingan_patch_sampler" / "train",
+        verbose=config.verbose,
     )
+    print(
+        f"Training dataset ready: {len(train_dataset)} patch item(s).",
+        flush=True,
+    )
+    print("Initializing validation patch dataset...", flush=True)
     val_dataset = MultiDomainWSIPatchDataset(
         dataset_dir=config.dataset_dir,
         canonical_domain=config.canonical_domain,
@@ -138,6 +158,11 @@ def create_datasets(
         recursive=config.recursive,
         seed=config.split_seed + 10_000,
         sampler_result_dir=Path("result") / "staingan_patch_sampler" / "val",
+        verbose=config.verbose,
+    )
+    print(
+        f"Validation dataset ready: {len(val_dataset)} patch item(s).",
+        flush=True,
     )
     return train_dataset, val_dataset
 
@@ -576,6 +601,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--strict-mpp-check", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--gpu-ids", type=int, nargs="+", default=[1, 2, 3])
     return parser
 
@@ -611,6 +637,7 @@ def main() -> None:
         device=args.device,
         recursive=args.recursive,
         strict_mpp_check=args.strict_mpp_check,
+        verbose=args.verbose,
         gpu_ids=tuple(args.gpu_ids),
     )
     checkpoint_path = train(config)

@@ -1,17 +1,37 @@
 import json
 import uuid
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from queue import Queue
 import traceback
 
 from fastapi import BackgroundTasks
+import torch
 
 from ai.runtime.task import Task
 from ai.runtime.worker import Worker
 from backend.services import image_store
 from backend.db import DATA_DIR, get_conn
 
-_worker = Worker()
+
+def _available_inference_devices() -> list[str]:
+    if torch.cuda.is_available():
+        devices = [
+            f"cuda:{gpu_index}"
+            for gpu_index in (1, 2, 3)
+            if torch.cuda.device_count() > gpu_index
+        ]
+        if devices:
+            return devices
+    return ["cpu"]
+
+
+INFERENCE_DEVICES = _available_inference_devices()
+_executor = ThreadPoolExecutor(max_workers=len(INFERENCE_DEVICES))
+_device_queue: Queue[str] = Queue()
+for _device in INFERENCE_DEVICES:
+    _device_queue.put(_device)
 
 
 class JobCancelledError(Exception):
@@ -61,7 +81,7 @@ def create_job(model_id: int, image_id: str, background_tasks: BackgroundTasks,
             """,
             (job_id, group_id, model_id, image_id, wsi_name),
         )
-    background_tasks.add_task(run_job, job_id, model_id, image_id)
+    _executor.submit(run_job, job_id, model_id, image_id)
     return job_id
 
 
@@ -80,15 +100,20 @@ def update_job(job_id: str, status: str, progress: int, message: str):
 
 # AI 모델을 실행하고 결과(이미지·metrics)를 DB에 저장; 취소·오류 발생 시 상태 업데이트
 def run_job(job_id: str, model_id: int, image_id: str):
-    update_job(job_id, "running", 0, "실행 중...")
-
-    def emit_event(status: str, progress: int, message: str):
+    device = _device_queue.get()
+    try:
         job = get_job(job_id)
         if job and job.get("cancelled"):
             raise JobCancelledError(f"Job {job_id} was cancelled")
-        update_job(job_id, status, progress, message)
 
-    try:
+        update_job(job_id, "running", 0, f"{device}에서 실행 중...")
+
+        def emit_event(status: str, progress: int, message: str):
+            job = get_job(job_id)
+            if job and job.get("cancelled"):
+                raise JobCancelledError(f"Job {job_id} was cancelled")
+            update_job(job_id, status, progress, f"[{device}] {message}")
+
         src_path = image_store.get_image_path(image_id)
         tgt_path = image_store.get_target_image_path()
         task = Task(
@@ -97,7 +122,7 @@ def run_job(job_id: str, model_id: int, image_id: str):
             result_path=DATA_DIR / "results",
             model_id=model_id
         )
-        task_result = _worker.run(task, emit_event=emit_event)
+        task_result = Worker().run(task, emit_event=emit_event, device=device)
         update_job(job_id, "running", 99, "Registering result image.")
         result_image_id = image_store.enroll_image(task_result.result_img_path)
 
@@ -125,6 +150,8 @@ def run_job(job_id: str, model_id: int, image_id: str):
                 "UPDATE jobs SET status = 'failed', message = ?, error_detail = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 ("오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", str(e), job_id),
             )
+    finally:
+        _device_queue.put(device)
 
 
 # 그룹 전체를 취소(실행 중) 또는 삭제(완료·실패)

@@ -3,14 +3,17 @@ Running example:
 ./.venv/bin/python -m ai.models.staingan.train_staingan \
 --dataset-dir /mnt/Disk1/dpsn_datasets/multiscanner_dataset \
 --canonical-domain nz210 \
---checkpoints-dir ai/checkpoints/staingan \
+--patch-cache-dir /mnt/Disk1/dpsn_patch_cache/staingan_patch_cache \
+--checkpoints-dir /mnt/Disk1/dpsn_outputs/checkpoints/staingan \
 --experiment-name staingan_many_to_nz210 \
+--train-sample-count 36 \
+--val-sample-count 8 \
+--patches-per-source-slide 128 \
 --image-size 256 \
 --target-mpp 0.25 \
---patches-per-source-slide 128 \
---train-sample-count 36 \
---val-sample-count 8
---mask-longest-side 512 \
+--mask-longest-side 256 \
+--batch-size 4 \
+--gpu-ids 1 2 3 \
 --verbose
 """
 
@@ -595,8 +598,8 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--split-seed", type=int, default=0)
     parser.add_argument("--batch-size", "--batchSize", dest="batch_size", type=int, default=4)
     parser.add_argument("--num-workers", "--nThreads", dest="num_workers", type=int, default=0)
-    parser.add_argument("--epochs-constant-lr", "--niter", dest="epochs_constant_lr", type=int, default=25)
-    parser.add_argument("--epochs-decay-lr", "--niter_decay", dest="epochs_decay_lr", type=int, default=25)
+    parser.add_argument("--epochs-constant-lr", "--niter", dest="epochs_constant_lr", type=int, default=20)
+    parser.add_argument("--epochs-decay-lr", "--niter_decay", dest="epochs_decay_lr", type=int, default=20)
     parser.add_argument("--lr", type=float, default=0.0002)
     parser.add_argument("--beta1", type=float, default=0.5)
     parser.add_argument("--lambda-identity", type=float, default=5.0)

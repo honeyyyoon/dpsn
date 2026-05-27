@@ -10,6 +10,7 @@ Running example:
 --patches-per-source-slide 128 \
 --train-sample-count 36 \
 --val-sample-count 8
+--mask-longest-side 512 \
 --verbose
 """
 
@@ -58,6 +59,7 @@ class StainGANTrainingConfig:
     target_mpp: float = 0.25
     read_level: int = 0
     patches_per_source_slide: int = 128
+    mask_longest_side: int = 1024
     train_sample_count: int = 36
     val_sample_count: int = 8
     split_seed: int = 0
@@ -135,6 +137,7 @@ def create_datasets(
         target_mpp=config.target_mpp,
         read_level=config.read_level,
         patches_per_source_slide=config.patches_per_source_slide,
+        mask_longest_side=config.mask_longest_side,
         strict_mpp_check=config.strict_mpp_check,
         recursive=config.recursive,
         seed=config.split_seed,
@@ -154,6 +157,7 @@ def create_datasets(
         target_mpp=config.target_mpp,
         read_level=config.read_level,
         patches_per_source_slide=max(1, config.patches_per_source_slide // 4),
+        mask_longest_side=config.mask_longest_side,
         strict_mpp_check=config.strict_mpp_check,
         recursive=config.recursive,
         seed=config.split_seed + 10_000,
@@ -577,6 +581,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--target-mpp", type=float, default=0.25)
     parser.add_argument("--read-level", type=int, default=0)
     parser.add_argument("--patches-per-source-slide", type=int, default=128)
+    parser.add_argument("--mask-longest-side", type=int, default=1024)
     parser.add_argument("--train-sample-count", type=int, default=36)
     parser.add_argument("--val-sample-count", type=int, default=8)
     parser.add_argument("--split-seed", type=int, default=0)
@@ -617,6 +622,7 @@ def main() -> None:
         target_mpp=args.target_mpp,
         read_level=args.read_level,
         patches_per_source_slide=args.patches_per_source_slide,
+        mask_longest_side=args.mask_longest_side,
         train_sample_count=args.train_sample_count,
         val_sample_count=args.val_sample_count,
         split_seed=args.split_seed,

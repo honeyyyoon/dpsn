@@ -59,6 +59,7 @@ def run_sanity_check(
     verbose: bool,
     sample_ids: list[str],
     patches_per_source_slide: int,
+    mask_longest_side: int,
 ) -> None:
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     if dataset_dir is None:
@@ -75,6 +76,7 @@ def run_sanity_check(
         image_size=image_size,
         target_mpp=0.25,
         patches_per_source_slide=patches_per_source_slide,
+        mask_longest_side=mask_longest_side,
         strict_mpp_check=False,
         seed=7,
         sampler_result_dir=Path(tempfile.gettempdir()) / "staingan_sanity_sampler",
@@ -144,6 +146,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--sample-ids", nargs="+", default=["01"])
     parser.add_argument("--patches-per-source-slide", type=int, default=1)
+    parser.add_argument("--mask-longest-side", type=int, default=1024)
     return parser
 
 
@@ -156,6 +159,7 @@ def main() -> None:
         verbose=args.verbose,
         sample_ids=args.sample_ids,
         patches_per_source_slide=args.patches_per_source_slide,
+        mask_longest_side=args.mask_longest_side,
     )
 
 

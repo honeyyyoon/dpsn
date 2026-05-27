@@ -70,6 +70,7 @@ class MultiDomainWSIPatchDataset(Dataset):
         target_mpp: float = 0.25,
         read_level: int = 0,
         patches_per_source_slide: int = 128,
+        mask_longest_side: int = 1024,
         strict_mpp_check: bool = True,
         recursive: bool = False,
         seed: int = 0,
@@ -83,6 +84,7 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.target_mpp = float(target_mpp)
         self.read_level = int(read_level)
         self.patches_per_source_slide = int(patches_per_source_slide)
+        self.mask_longest_side = int(mask_longest_side)
         self.strict_mpp_check = bool(strict_mpp_check)
         self.recursive = bool(recursive)
         self.seed = int(seed)
@@ -99,6 +101,8 @@ class MultiDomainWSIPatchDataset(Dataset):
             raise ValueError(
                 f"patches_per_source_slide must be > 0, got {self.patches_per_source_slide}"
             )
+        if self.mask_longest_side <= 0:
+            raise ValueError(f"mask_longest_side must be > 0, got {self.mask_longest_side}")
 
         self.records_by_sample = self._discover_records()
         self._log(
@@ -128,6 +132,7 @@ class MultiDomainWSIPatchDataset(Dataset):
             patch_size=self._native_patch_size_for_mpp(self.target_mpp),
             stride=self._native_patch_size_for_mpp(self.target_mpp),
             read_level=self.read_level,
+            mask_longest_side=self.mask_longest_side,
             strict_mpp_check=self.strict_mpp_check,
             result_dir=sampler_result_dir,
             verbose=self.verbose,

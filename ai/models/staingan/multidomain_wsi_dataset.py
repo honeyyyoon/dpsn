@@ -18,7 +18,7 @@ except ModuleNotFoundError:
     def tqdm(iterable, **_: object):
         return iterable
 
-from ai.samplers.patch_sampler import PatchSampler
+from ai.samplers.patch_sampler import NoTissueFoundError, NoValidPatchError, PatchSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.patch_ref import PatchRef
@@ -186,13 +186,16 @@ class MultiDomainWSIPatchDataset(Dataset):
                 patch_size = self._read_size_for_handle(handle, scanner_id)
                 sampler.patch_size = patch_size
                 sampler.stride = patch_size
-                refs = sampler.sample(
-                    handle,
-                    mode="training",
-                    max_patches=self.patches_per_source_slide,
+                refs = self._sample_with_mask_retries(
+                    sampler=sampler,
+                    handle=handle,
                     seed=self.seed + len(self.source_items),
-                    save_debug=False,
                 )
+                if not refs:
+                    self._log(
+                        f"  skipped {record.path.name}: no tissue patches found after retries"
+                    )
+                    continue
                 self.source_items.extend((record, ref) for ref in refs)
                 self._log(
                     f"  sampled {len(refs)} patch(es), total_source_patches={len(self.source_items)}"
@@ -268,6 +271,50 @@ class MultiDomainWSIPatchDataset(Dataset):
     def _log(self, message: str) -> None:
         if self.verbose:
             print(f"[MultiDomainWSIPatchDataset] {message}", flush=True)
+
+    def _sample_with_mask_retries(
+        self,
+        sampler: PatchSampler,
+        handle: WSIHandle,
+        seed: int,
+    ) -> list[PatchRef]:
+        original_mask_longest_side = sampler.mask_longest_side
+        retry_sides = [
+            original_mask_longest_side,
+            original_mask_longest_side * 2,
+            original_mask_longest_side * 4,
+            1024,
+            2048,
+        ]
+        retry_sides = sorted({side for side in retry_sides if side > 0})
+        last_error: Exception | None = None
+
+        for mask_longest_side in retry_sides:
+            sampler.mask_longest_side = mask_longest_side
+            try:
+                if mask_longest_side != original_mask_longest_side:
+                    self._log(
+                        f"  retrying tissue mask with mask_longest_side={mask_longest_side}"
+                    )
+                refs = sampler.sample(
+                    handle,
+                    mode="training",
+                    max_patches=self.patches_per_source_slide,
+                    seed=seed,
+                    save_debug=False,
+                )
+                sampler.mask_longest_side = original_mask_longest_side
+                return refs
+            except (NoTissueFoundError, NoValidPatchError) as exc:
+                last_error = exc
+                self._log(
+                    f"  no usable tissue patches at mask_longest_side={mask_longest_side}: {exc}"
+                )
+
+        sampler.mask_longest_side = original_mask_longest_side
+        if last_error is not None:
+            self._log(f"  final sampling failure: {last_error}")
+        return []
 
     def _cache_path(self) -> Path | None:
         if self.cache_dir is None:

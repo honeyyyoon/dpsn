@@ -3,6 +3,8 @@ from __future__ import annotations
 import random
 import re
 import time
+import json
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +32,8 @@ DEFAULT_SCANNER_MPP = {
     "p1000": 0.25,
     "gt450": 0.26,
 }
+MIN_PLAUSIBLE_MPP = 0.05
+MAX_PLAUSIBLE_MPP = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +80,8 @@ class MultiDomainWSIPatchDataset(Dataset):
         seed: int = 0,
         scanner_mpp: dict[str, float] | None = None,
         sampler_result_dir: str | Path = "result/staingan_patch_sampler",
+        cache_dir: str | Path | None = None,
+        use_patch_cache: bool = True,
         verbose: bool = False,
     ) -> None:
         self.dataset_dir = Path(dataset_dir)
@@ -89,6 +95,8 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.recursive = bool(recursive)
         self.seed = int(seed)
         self.scanner_mpp = {**DEFAULT_SCANNER_MPP, **(scanner_mpp or {})}
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
+        self.use_patch_cache = bool(use_patch_cache)
         self.verbose = bool(verbose)
 
         if not self.dataset_dir.is_dir():
@@ -128,6 +136,25 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.source_items: list[tuple[SlideRecord, PatchRef]] = []
         self.canonical_records: dict[str, SlideRecord] = {}
 
+        for sample_id in self.sample_ids:
+            canonical = self.records_by_sample[sample_id].get(self.canonical_domain)
+            if canonical is None:
+                raise ValueError(
+                    f"Sample {sample_id} does not have canonical domain {self.canonical_domain!r}"
+                )
+            self.canonical_records[sample_id] = canonical
+
+        cache_path = self._cache_path()
+        if self.use_patch_cache and cache_path is not None and cache_path.is_file():
+            self._log(f"Loading cached patch refs: {cache_path}")
+            self.source_items = self._load_source_items_cache(cache_path)
+            if self.source_items:
+                self._log(
+                    f"Loaded {len(self.source_items)} cached source patch item(s)."
+                )
+                return
+            self._log("Patch cache was empty; rebuilding.")
+
         sampler = PatchSampler(
             patch_size=self._native_patch_size_for_mpp(self.target_mpp),
             stride=self._native_patch_size_for_mpp(self.target_mpp),
@@ -136,6 +163,7 @@ class MultiDomainWSIPatchDataset(Dataset):
             strict_mpp_check=self.strict_mpp_check,
             result_dir=sampler_result_dir,
             verbose=self.verbose,
+            log_to_file=False,
         )
 
         sample_iter = tqdm(
@@ -147,13 +175,6 @@ class MultiDomainWSIPatchDataset(Dataset):
         )
         for sample_id in sample_iter:
             records = self.records_by_sample[sample_id]
-            canonical = records.get(self.canonical_domain)
-            if canonical is None:
-                raise ValueError(
-                    f"Sample {sample_id} does not have canonical domain {self.canonical_domain!r}"
-                )
-            self.canonical_records[sample_id] = canonical
-
             for scanner_id, record in sorted(records.items()):
                 if scanner_id == self.canonical_domain:
                     continue
@@ -179,6 +200,9 @@ class MultiDomainWSIPatchDataset(Dataset):
 
         if not self.source_items:
             raise ValueError("No non-canonical source patches were sampled.")
+        if self.use_patch_cache and cache_path is not None:
+            self._save_source_items_cache(cache_path)
+            self._log(f"Saved patch-ref cache: {cache_path}")
         self._log(f"Finished dataset initialization with {len(self.source_items)} source patch item(s).")
 
     @property
@@ -245,6 +269,69 @@ class MultiDomainWSIPatchDataset(Dataset):
         if self.verbose:
             print(f"[MultiDomainWSIPatchDataset] {message}", flush=True)
 
+    def _cache_path(self) -> Path | None:
+        if self.cache_dir is None:
+            return None
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "dataset_dir": str(self.dataset_dir),
+            "sample_ids": self.sample_ids,
+            "canonical_domain": self.canonical_domain,
+            "image_size": self.image_size,
+            "target_mpp": self.target_mpp,
+            "read_level": self.read_level,
+            "patches_per_source_slide": self.patches_per_source_slide,
+            "mask_longest_side": self.mask_longest_side,
+            "recursive": self.recursive,
+            "seed": self.seed,
+            "scanner_mpp": self.scanner_mpp,
+            "min_plausible_mpp": MIN_PLAUSIBLE_MPP,
+            "max_plausible_mpp": MAX_PLAUSIBLE_MPP,
+        }
+        digest = hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        return self.cache_dir / f"staingan_patch_refs_{digest}.json"
+
+    def _save_source_items_cache(self, cache_path: Path) -> None:
+        rows = []
+        for record, ref in self.source_items:
+            rows.append(
+                {
+                    "sample_id": record.sample_id,
+                    "scanner_id": record.scanner_id,
+                    "path": str(record.path),
+                    "ref": ref.to_dict(),
+                }
+            )
+        tmp_path = cache_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as file:
+            json.dump({"items": rows}, file)
+        tmp_path.replace(cache_path)
+
+    def _load_source_items_cache(self, cache_path: Path) -> list[tuple[SlideRecord, PatchRef]]:
+        with cache_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+        items: list[tuple[SlideRecord, PatchRef]] = []
+        for row in payload.get("items", []):
+            record = SlideRecord(
+                sample_id=str(row["sample_id"]),
+                scanner_id=str(row["scanner_id"]),
+                path=Path(row["path"]),
+            )
+            ref_data = row["ref"]
+            ref = PatchRef(
+                image_path=Path(ref_data["image_path"]),
+                x=int(ref_data["x"]),
+                y=int(ref_data["y"]),
+                width=int(ref_data["width"]),
+                height=int(ref_data["height"]),
+                read_level=int(ref_data["read_level"]),
+                downsample=int(ref_data["downsample"]),
+                mpp_x=float(ref_data["mpp_x"]),
+                mpp_y=float(ref_data["mpp_y"]),
+            )
+            items.append((record, ref))
+        return items
+
     def _parse_name(self, path: Path) -> tuple[str, str] | None:
         match = re.match(r"^scc_(?P<sample>.+)_(?P<scanner>[^_]+)$", path.stem)
         if match is None:
@@ -268,15 +355,21 @@ class MultiDomainWSIPatchDataset(Dataset):
 
     def _with_scanner_mpp_fallback(self, handle: WSIHandle, scanner_id: str) -> WSIHandle:
         mpp_x, mpp_y = handle.mpp
-        if mpp_x > 0 and mpp_y > 0:
+        if self._is_plausible_mpp(mpp_x) and self._is_plausible_mpp(mpp_y):
             return handle
+
         fallback = self.scanner_mpp.get(scanner_id)
         if fallback is None:
             if self.strict_mpp_check:
                 raise ValueError(
-                    f"Missing MPP metadata for {handle.image_path} and no fallback for {scanner_id!r}"
+                    f"Invalid MPP metadata for {handle.image_path}: mpp={handle.mpp}. "
+                    f"No scanner fallback configured for {scanner_id!r}."
                 )
             fallback = self.target_mpp
+        self._log(
+            f"Using scanner MPP fallback for {handle.image_path.name}: "
+            f"metadata_mpp={handle.mpp} scanner={scanner_id} fallback_mpp={fallback}"
+        )
         return WSIHandle(
             image_path=handle.image_path,
             dim=handle.dim,
@@ -284,6 +377,9 @@ class MultiDomainWSIPatchDataset(Dataset):
             level_dimensions=handle.level_dimensions,
             level_downsamples=handle.level_downsamples,
         )
+
+    def _is_plausible_mpp(self, mpp: float) -> bool:
+        return MIN_PLAUSIBLE_MPP <= float(mpp) <= MAX_PLAUSIBLE_MPP
 
     def _native_patch_size_for_mpp(self, mpp: float) -> int:
         return max(1, int(round(self.image_size * self.target_mpp / mpp)))
@@ -294,7 +390,7 @@ class MultiDomainWSIPatchDataset(Dataset):
 
     def _read_level_mpp(self, handle: WSIHandle, scanner_id: str) -> float:
         mpp_x, mpp_y = handle.mpp
-        if mpp_x <= 0 or mpp_y <= 0:
+        if not self._is_plausible_mpp(mpp_x) or not self._is_plausible_mpp(mpp_y):
             fallback = self.scanner_mpp.get(scanner_id, self.target_mpp)
             mpp_x = mpp_y = fallback
         downsample = float(handle.level_downsamples[self.read_level])

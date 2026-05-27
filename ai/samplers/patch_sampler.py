@@ -100,6 +100,7 @@ class PatchSampler:
         strict_mpp_check: bool = True,            # whether sampler should fail if the WSI is missing MPP metadata
         result_dir: str | Path = "result",        # folder where outputs get saved:
         verbose: bool = False,
+        log_to_file: bool = True,
     ) -> None:
         if patch_size <= 0:
             raise ValueError(f"patch_size must be > 0, got {patch_size}")
@@ -136,12 +137,13 @@ class PatchSampler:
         self.min_mask_region_area = min_mask_region_area
         self.strict_mpp_check = strict_mpp_check
         self.verbose = bool(verbose)
+        self.log_to_file = bool(log_to_file)
         self.result_dir = Path(result_dir)
         self.result_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.log_path = self.result_dir / f"patch_sampler_{timestamp}.txt"
-        self.logger = self._build_logger(self.log_path)
+        self.logger = self._build_logger(self.log_path, log_to_file=self.log_to_file)
 
         self.logger.info("Initialized PatchSampler")
         self.logger.info("patch_size=%d", self.patch_size)
@@ -151,7 +153,7 @@ class PatchSampler:
         self.logger.info("inference_tissue_threshold=%.4f", self.inference_tissue_threshold)
         self.logger.info("mask_longest_side=%d", self.mask_longest_side)
 
-    def _build_logger(self, log_path: Path) -> logging.Logger:
+    def _build_logger(self, log_path: Path, log_to_file: bool = True) -> logging.Logger:
         logger_name = f"PatchSampler:{log_path.stem}:{id(self)}"
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.INFO)
@@ -160,6 +162,10 @@ class PatchSampler:
         # avoid duplicated handlers if recreated
         if logger.handlers:
             logger.handlers.clear()
+
+        if not log_to_file:
+            logger.addHandler(logging.NullHandler())
+            return logger
 
         formatter = logging.Formatter(
             fmt="%(asctime)s | %(levelname)s | %(message)s",

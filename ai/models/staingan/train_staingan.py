@@ -60,6 +60,8 @@ class StainGANTrainingConfig:
     read_level: int = 0
     patches_per_source_slide: int = 128
     mask_longest_side: int = 1024
+    patch_cache_dir: Path = Path("/mnt/Disk1/dpsn_patch_cache/staingan_patch_cache")
+    use_patch_cache: bool = True
     train_sample_count: int = 36
     val_sample_count: int = 8
     split_seed: int = 0
@@ -142,6 +144,8 @@ def create_datasets(
         recursive=config.recursive,
         seed=config.split_seed,
         sampler_result_dir=Path("result") / "staingan_patch_sampler" / "train",
+        cache_dir=config.patch_cache_dir / "train",
+        use_patch_cache=config.use_patch_cache,
         verbose=config.verbose,
     )
     print(
@@ -162,6 +166,8 @@ def create_datasets(
         recursive=config.recursive,
         seed=config.split_seed + 10_000,
         sampler_result_dir=Path("result") / "staingan_patch_sampler" / "val",
+        cache_dir=config.patch_cache_dir / "val",
+        use_patch_cache=config.use_patch_cache,
         verbose=config.verbose,
     )
     print(
@@ -582,6 +588,8 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--read-level", type=int, default=0)
     parser.add_argument("--patches-per-source-slide", type=int, default=128)
     parser.add_argument("--mask-longest-side", type=int, default=1024)
+    parser.add_argument("--patch-cache-dir", type=Path, default=Path("/mnt/Disk1/dpsn_patch_cache/staingan_patch_cache"),)
+    parser.add_argument("--use-patch-cache", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--train-sample-count", type=int, default=36)
     parser.add_argument("--val-sample-count", type=int, default=8)
     parser.add_argument("--split-seed", type=int, default=0)
@@ -623,6 +631,8 @@ def main() -> None:
         read_level=args.read_level,
         patches_per_source_slide=args.patches_per_source_slide,
         mask_longest_side=args.mask_longest_side,
+        patch_cache_dir=args.patch_cache_dir,
+        use_patch_cache=args.use_patch_cache,
         train_sample_count=args.train_sample_count,
         val_sample_count=args.val_sample_count,
         split_seed=args.split_seed,

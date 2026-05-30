@@ -245,6 +245,10 @@ class StainSWINPipeline(ModelPipeline):
             raise ValueError("stbs_per_block must be > 0")
 
     def _load_model(self) -> StainSWINModel:
+        checkpoint_path = self._resolve_checkpoint_path()
+        checkpoint = self._load_checkpoint(checkpoint_path)
+        self._apply_checkpoint_model_config(checkpoint)
+
         model = StainSWINModel(
             input_nc=self.config.input_nc,
             output_nc=self.config.output_nc,
@@ -259,12 +263,35 @@ class StainSWINPipeline(ModelPipeline):
             use_image_residual=self.config.use_image_residual,
         )
 
-        checkpoint_path = self._resolve_checkpoint_path()
-        checkpoint = self._load_checkpoint(checkpoint_path)
         state_dict = self._extract_state_dict(checkpoint)
         state_dict = self._strip_module_prefix(state_dict)
         model.load_state_dict(state_dict)
         return model
+
+    def _apply_checkpoint_model_config(self, checkpoint: Any) -> None:
+        if not isinstance(checkpoint, dict):
+            return
+
+        checkpoint_config = checkpoint.get("config")
+        if not isinstance(checkpoint_config, dict):
+            return
+
+        for field_name in (
+            "input_nc",
+            "output_nc",
+            "embed_dim",
+            "num_heads",
+            "num_res_blocks",
+            "stbs_per_block",
+            "window_size",
+            "mlp_ratio",
+            "conv_kernel_size",
+            "reconstruction_channels",
+            "use_image_residual",
+        ):
+            value = checkpoint_config.get(field_name)
+            if value is not None:
+                setattr(self.config, field_name, value)
 
     def _load_checkpoint(self, checkpoint_path: Path) -> Any:
         try:
@@ -299,6 +326,21 @@ class StainSWINPipeline(ModelPipeline):
         if not checkpoint_dir.is_dir():
             raise FileNotFoundError(
                 f"StainSWIN checkpoint directory not found: {checkpoint_dir}"
+            )
+
+        best_candidates = sorted(
+            [
+                *checkpoint_dir.glob("*best*.pth"),
+                *checkpoint_dir.glob("*best*.pt"),
+            ]
+        )
+        if len(best_candidates) == 1:
+            return best_candidates[0]
+        if len(best_candidates) > 1:
+            names = ", ".join(str(path) for path in best_candidates)
+            raise ValueError(
+                "Multiple StainSWIN best checkpoint files found. "
+                f"Pass checkpoint_path explicitly: {names}"
             )
 
         latest_candidates = sorted(

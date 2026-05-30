@@ -217,6 +217,10 @@ class StainGANPipeline(ModelPipeline):
         
     # Build the generator and load trained weights into it
     def _load_model(self) -> ResnetGenerator:
+        checkpoint_path = self._resolve_checkpoint_path() #select which checkpoint path to load
+        checkpoint = self._load_checkpoint(checkpoint_path) #load the checkpoint from path
+        self._apply_checkpoint_model_config(checkpoint)
+
         model = ResnetGenerator( #Create the generator architecture
             input_nc=self.config.input_nc,
             output_nc=self.config.output_nc,
@@ -224,12 +228,23 @@ class StainGANPipeline(ModelPipeline):
             n_blocks=self.config.generator_blocks,
         )
 
-        checkpoint_path = self._resolve_checkpoint_path() #select which checkpoint path to load
-        checkpoint = self._load_checkpoint(checkpoint_path) #load the checkpoint from path
         state_dict = self._extract_state_dict(checkpoint) #extract generator weights from ckpt
         state_dict = self._strip_module_prefix(state_dict) #strip unnecessary prefixes
         model.load_state_dict(state_dict) #load weights onto model
         return model
+
+    def _apply_checkpoint_model_config(self, checkpoint: Any) -> None:
+        if not isinstance(checkpoint, dict):
+            return
+
+        checkpoint_config = checkpoint.get("config")
+        if not isinstance(checkpoint_config, dict):
+            return
+
+        for field_name in ("input_nc", "output_nc", "ngf", "generator_blocks"):
+            value = checkpoint_config.get(field_name)
+            if value is not None:
+                setattr(self.config, field_name, value)
 
     # Actually opens and loads that checkpoint file with PyTorch
     def _load_checkpoint(self, checkpoint_path: Path) -> Any:
@@ -269,7 +284,22 @@ class StainGANPipeline(ModelPipeline):
                 f"StainGAN checkpoint directory not found: {checkpoint_dir}"
             )
 
-        latest_candidates = sorted( #look for latest checkpoints first (ones that end with .pth or .pt)
+        best_candidates = sorted( # prefer the validation-best checkpoint saved by training
+            [
+                *checkpoint_dir.glob("*best*.pth"),
+                *checkpoint_dir.glob("*best*.pt"),
+            ]
+        )
+        if len(best_candidates) == 1:
+            return best_candidates[0]
+        if len(best_candidates) > 1:
+            names = ", ".join(str(path) for path in best_candidates)
+            raise ValueError(
+                "Multiple StainGAN best checkpoint files found. "
+                f"Pass checkpoint_path explicitly: {names}"
+            )
+
+        latest_candidates = sorted( # otherwise look for latest checkpoints
             [
                 *checkpoint_dir.glob("*latest*.pth"),
                 *checkpoint_dir.glob("*latest*.pt"),

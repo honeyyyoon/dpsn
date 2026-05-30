@@ -220,6 +220,10 @@ class StainNetPipeline(ModelPipeline):
             raise ValueError("tile_size must be > 0")
 
     def _load_model(self) -> StainNetModel:
+        checkpoint_path = self._resolve_checkpoint_path()
+        checkpoint = self._load_checkpoint(checkpoint_path)
+        self._apply_checkpoint_model_config(checkpoint)
+
         model = StainNetModel(
             input_nc=self.config.input_nc,
             output_nc=self.config.output_nc,
@@ -228,12 +232,30 @@ class StainNetPipeline(ModelPipeline):
             kernel_size=self.config.kernel_size,
         )
 
-        checkpoint_path = self._resolve_checkpoint_path()
-        checkpoint = self._load_checkpoint(checkpoint_path)
         state_dict = self._extract_state_dict(checkpoint)
         state_dict = self._strip_module_prefix(state_dict)
         model.load_state_dict(state_dict)
         return model
+
+    def _apply_checkpoint_model_config(self, checkpoint: Any) -> None:
+        if not isinstance(checkpoint, dict):
+            return
+
+        checkpoint_config = checkpoint.get("config")
+        if not isinstance(checkpoint_config, dict):
+            return
+
+        config_key_map = {
+            "input_nc": "input_nc",
+            "output_nc": "output_nc",
+            "channels": "channels",
+            "n_layer": "n_layer",
+            "kernel_size": "kernel_size",
+        }
+        for checkpoint_key, config_field in config_key_map.items():
+            value = checkpoint_config.get(checkpoint_key)
+            if value is not None:
+                setattr(self.config, config_field, value)
 
     def _load_checkpoint(self, checkpoint_path: Path) -> Any:
         try:
@@ -271,6 +293,21 @@ class StainNetPipeline(ModelPipeline):
         if not checkpoint_dir.is_dir():
             raise FileNotFoundError(
                 f"StainNet checkpoint directory not found: {checkpoint_dir}"
+            )
+
+        best_candidates = sorted(
+            [
+                *checkpoint_dir.glob("*best*.pth"),
+                *checkpoint_dir.glob("*best*.pt"),
+            ]
+        )
+        if len(best_candidates) == 1:
+            return best_candidates[0]
+        if len(best_candidates) > 1:
+            names = ", ".join(str(path) for path in best_candidates)
+            raise ValueError(
+                "Multiple StainNet best checkpoint files found. "
+                f"Pass checkpoint_path explicitly: {names}"
             )
 
         latest_candidates = sorted(

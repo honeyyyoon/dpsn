@@ -33,7 +33,7 @@ class TiffFileLoader(Loader):
                 h, w = page.shape[:2]
             else:
                 raise UnsupportedTiffShapeError(
-                    f"Unsupported TIFF shape: {page.shape}"
+                    f"지원하지 않는 TIFF shape입니다: {page.shape}"
                 )
 
             dim = (w, h)
@@ -51,7 +51,7 @@ class TiffFileLoader(Loader):
         img = tifffile.imread(patch_ref.image_path)
         if img.ndim != 3:
             raise UnsupportedTiffShapeError(
-                f"Unsupported TIFF image shape for patch loading: {img.shape}"
+                f"패치 로딩에 지원하지 않는 TIFF 이미지 shape입니다: {img.shape}"
             )
 
         if img.dtype != np.uint8:

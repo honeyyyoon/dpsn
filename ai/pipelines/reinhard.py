@@ -71,7 +71,7 @@ class Reinhard(ModelPipeline):
         self.logger.info(f"Use Reinhard device: {self.device}")
         
         if target_img_path is None:
-            raise MissingTargetImageError("Reinhard needs a target image.")
+            raise MissingTargetImageError("Reinhard 정규화에는 타겟 이미지가 필요합니다.")
         
         src_wsi_handle = open_wsi_handle(src_img_path)
         target_wsi_handle = open_wsi_handle(target_img_path)
@@ -143,15 +143,15 @@ class Reinhard(ModelPipeline):
 
     def _validate_config(self) -> None:
         if self.batch_size <= 0:
-            raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
+            raise ValueError(f"batch_size는 0보다 커야 합니다. 입력값: {self.batch_size}")
         if self.patch_size <= 0:
-            raise ValueError(f"patch_size must be > 0, got {self.patch_size}")
+            raise ValueError(f"patch_size는 0보다 커야 합니다. 입력값: {self.patch_size}")
         if self.max_sample_patches <= 0:
             raise ValueError(
-                f"max_sample_patches must be > 0, got {self.max_sample_patches}"
+                f"max_sample_patches는 0보다 커야 합니다. 입력값: {self.max_sample_patches}"
             )
         if self.max_iteration <= 0:
-            raise ValueError(f"max_iteration must be > 0, got {self.max_iteration}")
+            raise ValueError(f"max_iteration은 0보다 커야 합니다. 입력값: {self.max_iteration}")
 
     def _select_device(self, device: str | torch.device | None) -> torch.device:
         if device is not None:
@@ -205,6 +205,7 @@ class Reinhard(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
+            use_custom="custom" in metrics,
             target_patch=target_images,
         )
 
@@ -225,9 +226,9 @@ class Reinhard(ModelPipeline):
 
         if expected_iterations > self.max_iteration:
             raise ReinhardImageTooLargeError(
-                "Image is too big! "
-                f"Expected iteration: {expected_iterations}, "
-                f"Max iteration: {self.max_iteration}"
+                "이미지가 너무 큽니다. "
+                f"예상 반복 횟수: {expected_iterations}, "
+                f"최대 반복 횟수: {self.max_iteration}"
             )
 
         return level
@@ -377,10 +378,10 @@ class Reinhard(ModelPipeline):
         if image.ndim == 3:
             image = image[np.newaxis, ...]
         if image.ndim != 4:
-            raise PipelineInputShapeError(f"Image should be 4D, but got {image.ndim}D")
+            raise PipelineInputShapeError(f"이미지는 4차원이어야 합니다. 입력 차원: {image.ndim}D")
         if image.shape[1] != 3:
             raise PipelineInputShapeError(
-                f"Image should have 3 channels in CHW format, got {image.shape}"
+                f"이미지는 CHW 형식의 3채널이어야 합니다. 입력 shape: {image.shape}"
             )
 
         should_scale = np.issubdtype(image.dtype, np.integer) or image.max() > 1.0
@@ -397,7 +398,7 @@ class Reinhard(ModelPipeline):
         tensor = torch.as_tensor(value, device=self.device, dtype=torch.float32)
         if tensor.shape != (3,):
             raise PipelineInputShapeError(
-                f"{name} should have shape (3,), got {tuple(tensor.shape)}"
+                f"{name}은 shape (3,)이어야 합니다. 입력 shape: {tuple(tensor.shape)}"
             )
 
         return tensor

@@ -40,7 +40,7 @@ class OpenSlideLoader(Loader):
                 )
         else:
             raise UnsupportedWSIFormatError(
-                f"OpenSlide does not support file format: {img_path}"
+                f"OpenSlide가 지원하지 않는 파일 형식입니다: {img_path}"
             )
     
     @staticmethod

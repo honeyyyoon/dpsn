@@ -40,17 +40,42 @@ class Worker:
     def run(self, task: Task, emit_event) -> TaskResult:
         emit_event(status="running", progress=1, message="Loading pipeline.")
         pipeline = self._create_pipeline(task.model_id)
+        metrics_to_compute = ["ssim", "psnr"]
+        if task.target_img_path is not None:
+            metrics_to_compute.extend(["fid", "custom"])
+
         pipeline_result = pipeline.run(
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            ["ssim", "psnr", "fid"],
+            metrics_to_compute,
             emit_event=emit_event
         )
         metrics = Metrics(
-            ssim=pipeline_result.scores.get("ssim", 0.0), 
-            psnr=pipeline_result.scores.get("psnr", 0.0), 
-            fid=pipeline_result.scores.get("fid", 0.0)
+            ssim=self._score_or_zero(pipeline_result.scores.get("ssim")),
+            psnr=self._score_or_zero(pipeline_result.scores.get("psnr")),
+            fid=self._score_or_zero(pipeline_result.scores.get("fid")),
+            stain_preservation_corr=pipeline_result.scores.get(
+                "stain_preservation_corr"
+            ),
+            normalized_target_stain_angle_deg=pipeline_result.scores.get(
+                "normalized_target_stain_angle_deg"
+            ),
+            source_target_stain_angle_deg=pipeline_result.scores.get(
+                "source_target_stain_angle_deg"
+            ),
+            stain_angle_improvement_deg=pipeline_result.scores.get(
+                "stain_angle_improvement_deg"
+            ),
+            custom_structure_score=pipeline_result.scores.get(
+                "custom_structure_score"
+            ),
+            custom_color_score=pipeline_result.scores.get("custom_color_score"),
+            source_stain_rank=pipeline_result.scores.get("source_stain_rank"),
+            normalized_stain_rank=pipeline_result.scores.get(
+                "normalized_stain_rank"
+            ),
+            target_stain_rank=pipeline_result.scores.get("target_stain_rank"),
         )
 
         return TaskResult(
@@ -63,7 +88,7 @@ class Worker:
         pipeline_path = PIPELINE_MAP.get(model_id)
         if pipeline_path is None:
             raise UnknownModelError(
-                f"model_id {model_id} does not have a registered pipeline."
+                f"model_id {model_id}에 등록된 파이프라인이 없습니다."
             )
 
         module_path, class_name = pipeline_path.split(":", maxsplit=1)
@@ -72,15 +97,20 @@ class Worker:
             pipeline_class = getattr(module, class_name)
         except (ImportError, AttributeError) as error:
             raise PipelineImportError(
-                f"Failed to load pipeline '{pipeline_path}' for model_id {model_id}: {error}"
+                f"model_id {model_id}의 파이프라인 '{pipeline_path}'을 불러오지 못했습니다: {error}"
             ) from error
         return pipeline_class(self._build_logger(Path("result/log.txt")))
+
+    def _score_or_zero(self, value: Any) -> float:
+        if value is None:
+            return 0.0
+        return float(value)
 
     def _get_result_img_path(self, pipeline_result: Any) -> Path:
         output_path = getattr(pipeline_result, "output_path", None)
         if not output_path:
             raise InvalidPipelineResultError(
-                "Pipeline result must contain a non-empty output_path."
+                "파이프라인 결과에는 비어 있지 않은 output_path가 필요합니다."
             )
 
         return Path(output_path)

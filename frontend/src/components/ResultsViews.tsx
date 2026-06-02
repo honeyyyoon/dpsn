@@ -16,6 +16,10 @@ function refLabel(def: MetricDef): string {
   return `${sign}${def.ref}${def.unit ? " " + def.unit : ""}`;
 }
 
+function formatMetricValue(def: MetricDef, value: number): string {
+  return value.toFixed(def.precision ?? 2);
+}
+
 function formatElapsed(seconds?: number | null): string {
   if (seconds == null) return "-";
   const s = Math.round(seconds);
@@ -65,7 +69,7 @@ function MetricCard({ def, value }: MetricCardProps) {
             color,
           }}
         >
-          {def.key === "ssim" ? value.toFixed(3) : value.toFixed(2)}
+          {formatMetricValue(def, value)}
         </div>
         {def.unit && (
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -338,7 +342,7 @@ function ResultCard({
               flex: 1,
             }}
           >
-            {METRIC_DEFS.map((def) => {
+            {METRIC_DEFS.slice(0, 3).map((def) => {
               const isBest = best[def.key] === model.id;
               const val =
                 result?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
@@ -372,7 +376,7 @@ function ResultCard({
                       color: metricColor(def, val),
                     }}
                   >
-                    {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                    {formatMetricValue(def, val)}
                   </div>
                 </div>
               );
@@ -454,7 +458,7 @@ export function SingleResult({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
           gap: 12,
         }}
       >
@@ -523,7 +527,7 @@ export function SingleResult({
 }
 
 export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }: { models: ModelUi[]; results: Record<number, JobResult>; failedJobs?: Record<number, FailedJobInfo>; srcImageId?: string }) {
-  const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
+  const [sortKey, setSortKey] = useState<MetricDef["key"]>("psnr");
   const [hiddenModels, setHiddenModels] = useState<Set<number>>(new Set());
   const seed = 7;
 
@@ -541,8 +545,8 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
   const sorted = [...successModels].sort((a, b) => {
     const def = METRIC_DEFS.find((d) => d.key === sortKey);
     const missing = def?.higherBetter ? -Infinity : Infinity;
-    const A = results[a.id]?.metrics[sortKey] ?? missing;
-    const B = results[b.id]?.metrics[sortKey] ?? missing;
+    const A = Number(results[a.id]?.metrics[sortKey] ?? missing);
+    const B = Number(results[b.id]?.metrics[sortKey] ?? missing);
     return def?.higherBetter ? B - A : A - B;
   });
 
@@ -559,7 +563,10 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
   METRIC_DEFS.forEach((def) => {
     const vals = successModels
       .filter((m) => results[m.id]?.metrics[def.key as keyof (typeof results)[number]["metrics"]] != null)
-      .map((m) => ({ id: m.id, v: results[m.id].metrics[def.key as keyof (typeof results)[number]["metrics"]] }));
+      .map((m) => ({
+        id: m.id,
+        v: Number(results[m.id].metrics[def.key as keyof (typeof results)[number]["metrics"]]),
+      }));
     vals.sort((x, y) => (def.higherBetter ? y.v - x.v : x.v - y.v));
     if (vals.length > 0) best[def.key] = vals[0].id;
   });
@@ -751,12 +758,12 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                     </td>
                     {METRIC_DEFS.map((def) => {
                       const isBest = best[def.key] === m.id;
-                      const val = r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
+                      const val = Number(r?.metrics[def.key as keyof JobResult["metrics"]] ?? 0);
                       return (
                         <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} className="num">
                           <span style={{ fontWeight: isBest ? 700 : 500, color: metricColor(def, val) }}>
                             {isBest && <span style={{ marginRight: 4, color: "var(--text-muted)" }}>★</span>}
-                            {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                            {formatMetricValue(def, val)}
                           </span>
                         </td>
                       );

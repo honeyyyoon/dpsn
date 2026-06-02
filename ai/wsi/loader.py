@@ -36,16 +36,16 @@ def open_wsi_handle(image_path: str | Path) -> WSIHandle:
                 return TiffFileLoader.open_wsi_handle(image_path)
             except Exception as tiff_error:
                 raise WSIHandleOpenError(
-                    f"Failed to open WSI file with OpenSlide or tifffile: {image_path}. "
-                    f"OpenSlide error: {openslide_error}; tifffile error: {tiff_error}"
+                    f"OpenSlide와 tifffile로 WSI 파일을 열지 못했습니다: {image_path}. "
+                    f"OpenSlide 오류: {openslide_error}; tifffile 오류: {tiff_error}"
                 ) from tiff_error
 
     try:
         return PillowLoader.open_wsi_handle(image_path)
     except Exception as pillow_error:
         raise WSIHandleOpenError(
-            f"Failed to open image file with Pillow: {image_path}. "
-            f"Pillow error: {pillow_error}"
+            f"Pillow로 이미지 파일을 열지 못했습니다: {image_path}. "
+            f"Pillow 오류: {pillow_error}"
         ) from pillow_error
 
 
@@ -66,14 +66,14 @@ def load_patch(ref: PatchRef) -> Patch:
                 return TiffFileLoader.load_patch(ref)
             except Exception as tiff_error:
                 raise PatchLoadError(
-                    f"Failed to load patch with OpenSlide or tifffile: {ref.image_path}. "
-                    f"OpenSlide error: {openslide_error}; tifffile error: {tiff_error}"
+                    f"OpenSlide와 tifffile로 패치를 불러오지 못했습니다: {ref.image_path}. "
+                    f"OpenSlide 오류: {openslide_error}; tifffile 오류: {tiff_error}"
                 ) from tiff_error
 
     try:
         return PillowLoader.load_patch(ref)
     except Exception as pillow_error:
         raise PatchLoadError(
-            f"Failed to load patch with Pillow: {ref.image_path}. "
-            f"Pillow error: {pillow_error}"
+            f"Pillow로 패치를 불러오지 못했습니다: {ref.image_path}. "
+            f"Pillow 오류: {pillow_error}"
         ) from pillow_error

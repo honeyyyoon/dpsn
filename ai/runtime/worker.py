@@ -21,6 +21,10 @@ class InvalidPipelineResultError(WorkerError):
     """Raised when a pipeline does not return the expected output path."""
 
 
+class PipelineImportError(WorkerError):
+    """Raised when a registered pipeline module or class cannot be loaded."""
+
+
 PIPELINE_MAP: dict[int, str] = {
     1: "ai.pipelines.reinhard:Reinhard",
     2: "ai.pipelines.macenko:Macenko",  
@@ -63,8 +67,13 @@ class Worker:
             )
 
         module_path, class_name = pipeline_path.split(":", maxsplit=1)
-        module = import_module(module_path)
-        pipeline_class = getattr(module, class_name)
+        try:
+            module = import_module(module_path)
+            pipeline_class = getattr(module, class_name)
+        except (ImportError, AttributeError) as error:
+            raise PipelineImportError(
+                f"Failed to load pipeline '{pipeline_path}' for model_id {model_id}: {error}"
+            ) from error
         return pipeline_class(self._build_logger(Path("result/log.txt")))
 
     def _get_result_img_path(self, pipeline_result: Any) -> Path:

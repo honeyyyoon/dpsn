@@ -75,6 +75,7 @@ class MultiStainCycleGANConfig:
     lambda_cycle: float = 10.0
     lambda_identity: float = 5.0
     lambda_content: float = 0.0
+    pool_size: int = 50
 
     device: str = "auto"
     gpu_ids: tuple[int, ...] = (1, 2, 3)
@@ -148,5 +149,7 @@ class MultiStainCycleGANConfig:
             raise ValueError(
                 f"checkpoint_interval must be > 0, got {self.checkpoint_interval}"
             )
+        if self.pool_size < 0:
+            raise ValueError(f"pool_size must be >= 0, got {self.pool_size}")
         if not self.gpu_ids:
             raise ValueError("gpu_ids must not be empty")

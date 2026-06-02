@@ -9,12 +9,24 @@ import numpy as np
 import torch
 
 from ai.metrics.metric import Metric
-from ai.pipelines.base import ModelPipeline
+from ai.pipelines.base import ModelPipeline, PipelineInputShapeError
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.writer import MultiZarrWSIWriter
+
+
+class ReinhardError(RuntimeError):
+    """Base class for Reinhard pipeline errors."""
+
+
+class MissingTargetImageError(ReinhardError):
+    """Raised when Reinhard normalization is run without a target image."""
+
+
+class ReinhardImageTooLargeError(ReinhardError):
+    """Raised when the selected WSI would exceed the configured iteration limit."""
 
 
 @dataclass(frozen=True)
@@ -59,7 +71,7 @@ class Reinhard(ModelPipeline):
         self.logger.info(f"Use Reinhard device: {self.device}")
         
         if target_img_path is None:
-            raise ValueError("Reinhard needs a target image.")
+            raise MissingTargetImageError("Reinhard needs a target image.")
         
         src_wsi_handle = open_wsi_handle(src_img_path)
         target_wsi_handle = open_wsi_handle(target_img_path)
@@ -212,7 +224,7 @@ class Reinhard(ModelPipeline):
             )
 
         if expected_iterations > self.max_iteration:
-            raise ValueError(
+            raise ReinhardImageTooLargeError(
                 "Image is too big! "
                 f"Expected iteration: {expected_iterations}, "
                 f"Max iteration: {self.max_iteration}"
@@ -365,9 +377,11 @@ class Reinhard(ModelPipeline):
         if image.ndim == 3:
             image = image[np.newaxis, ...]
         if image.ndim != 4:
-            raise ValueError(f"Image should be 4D, but got {image.ndim}D")
+            raise PipelineInputShapeError(f"Image should be 4D, but got {image.ndim}D")
         if image.shape[1] != 3:
-            raise ValueError(f"Image should have 3 channels in CHW format, got {image.shape}")
+            raise PipelineInputShapeError(
+                f"Image should have 3 channels in CHW format, got {image.shape}"
+            )
 
         should_scale = np.issubdtype(image.dtype, np.integer) or image.max() > 1.0
         tensor = torch.from_numpy(np.ascontiguousarray(image)).to(
@@ -382,7 +396,9 @@ class Reinhard(ModelPipeline):
     def _stats_tensor(self, value: np.ndarray | torch.Tensor, name: str) -> torch.Tensor:
         tensor = torch.as_tensor(value, device=self.device, dtype=torch.float32)
         if tensor.shape != (3,):
-            raise ValueError(f"{name} should have shape (3,), got {tuple(tensor.shape)}")
+            raise PipelineInputShapeError(
+                f"{name} should have shape (3,), got {tuple(tensor.shape)}"
+            )
 
         return tensor
 

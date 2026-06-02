@@ -8,12 +8,32 @@ import numpy as np
 import torch
 
 from ai.metrics.metric import Metric
-from ai.pipelines.base import ModelPipeline
+from ai.pipelines.base import ModelPipeline, PipelineInputShapeError
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import open_wsi_handle, load_patch
 from ai.wsi.writer import MultiZarrWSIWriter
+
+
+class MacenkoError(RuntimeError):
+    """Base class for Macenko pipeline errors."""
+
+
+class MacenkoNotFittedError(MacenkoError):
+    """Raised when Macenko normalization is used before fit."""
+
+
+class MissingTargetImageError(MacenkoError):
+    """Raised when Macenko normalization is run without a target image."""
+
+
+class MacenkoImageTooLargeError(MacenkoError):
+    """Raised when the selected WSI would exceed the configured iteration limit."""
+
+
+class NoTissuePixelsError(MacenkoError):
+    """Raised when stain fitting cannot find valid tissue pixels."""
 
 
 class MacenkoNormalizer:
@@ -82,7 +102,9 @@ class MacenkoNormalizer:
             or self.target_stain_matrix is None
             or self.target_max_conc is None
         ):
-            raise RuntimeError("Call fit(source_patches, target_patches) before normalize().")
+            raise MacenkoNotFittedError(
+                "Call fit(source_patches, target_patches) before normalize()."
+            )
 
         source_rgb = self._to_hwc_float_tensor(source_rgb)
         original_shape = source_rgb.shape
@@ -116,9 +138,13 @@ class MacenkoNormalizer:
 
     def _validate_rgb(self, rgb: np.ndarray) -> None:
         if rgb.ndim not in {3, 4}:
-            raise ValueError(f"Expected RGB image or batch, got {rgb.ndim}D array")
+            raise PipelineInputShapeError(
+                f"Expected RGB image or batch, got {rgb.ndim}D array"
+            )
         if rgb.shape[-1] != 3:
-            raise ValueError(f"Expected RGB data with channels-last shape, got {rgb.shape}")
+            raise PipelineInputShapeError(
+                f"Expected RGB data with channels-last shape, got {rgb.shape}"
+            )
 
     def _to_hwc_float_tensor(self, rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
         if isinstance(rgb, np.ndarray):
@@ -127,11 +153,17 @@ class MacenkoNormalizer:
         elif isinstance(rgb, torch.Tensor):
             tensor = rgb
             if tensor.ndim not in {3, 4}:
-                raise ValueError(f"Expected RGB image or batch, got {tensor.ndim}D tensor")
+                raise PipelineInputShapeError(
+                    f"Expected RGB image or batch, got {tensor.ndim}D tensor"
+                )
             if tensor.shape[-1] != 3:
-                raise ValueError(f"Expected RGB data with channels-last shape, got {tuple(tensor.shape)}")
+                raise PipelineInputShapeError(
+                    f"Expected RGB data with channels-last shape, got {tuple(tensor.shape)}"
+                )
         else:
-            raise TypeError(f"rgb must be a numpy.ndarray or torch.Tensor, got {type(rgb).__name__}")
+            raise PipelineInputShapeError(
+                f"rgb must be a numpy.ndarray or torch.Tensor, got {type(rgb).__name__}"
+            )
 
         tensor = tensor.to(device=self.device, dtype=torch.float32)
         if float(tensor.max().detach().cpu().item()) <= 1.0:
@@ -197,7 +229,7 @@ class MacenkoNormalizer:
             od = self._rgb_to_od(flat_rgb[fallback_valid]).reshape(-1, 3)
 
         if len(od) == 0:
-            raise ValueError("No valid tissue pixels found. Try lowering beta.")
+            raise NoTissuePixelsError("No valid tissue pixels found. Try lowering beta.")
 
         if len(od) > self.max_fit_pixels:
             rng = np.random.default_rng(self.random_seed)
@@ -278,7 +310,7 @@ class Macenko(ModelPipeline):
         self.logger.info(f"Use Macenko device: {self.device}")
 
         if target_img_path is None:
-            raise ValueError("Macenko pipeline requires a target image.")
+            raise MissingTargetImageError("Macenko pipeline requires a target image.")
         
         src_wsi_handle = open_wsi_handle(src_img_path)
         target_wsi_handle = open_wsi_handle(target_img_path)
@@ -422,7 +454,7 @@ class Macenko(ModelPipeline):
             )
 
         if expected_iterations > self.max_iteration:
-            raise ValueError(
+            raise MacenkoImageTooLargeError(
                 "Image is too big! "
                 f"Expected iteration: {expected_iterations}, "
                 f"Max iteration: {self.max_iteration}"
@@ -512,20 +544,30 @@ class Macenko(ModelPipeline):
             if patches.ndim == 3:
                 patches = patches[np.newaxis, ...]
             if patches.ndim != 4:
-                raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+                raise PipelineInputShapeError(
+                    f"Expected patch batch with 4D shape, got {patches.ndim}D"
+                )
             if patches.shape[1] != 3:
-                raise ValueError(f"Expected CHW patch batch with 3 channels, got {patches.shape}")
+                raise PipelineInputShapeError(
+                    f"Expected CHW patch batch with 3 channels, got {patches.shape}"
+                )
             tensor = torch.from_numpy(np.ascontiguousarray(patches))
         elif isinstance(patches, torch.Tensor):
             tensor = patches
             if tensor.ndim == 3:
                 tensor = tensor.unsqueeze(0)
             if tensor.ndim != 4:
-                raise ValueError(f"Expected patch batch with 4D shape, got {tensor.ndim}D")
+                raise PipelineInputShapeError(
+                    f"Expected patch batch with 4D shape, got {tensor.ndim}D"
+                )
             if tensor.shape[1] != 3:
-                raise ValueError(f"Expected CHW patch batch with 3 channels, got {tuple(tensor.shape)}")
+                raise PipelineInputShapeError(
+                    f"Expected CHW patch batch with 3 channels, got {tuple(tensor.shape)}"
+                )
         else:
-            raise TypeError(f"patches must be a numpy.ndarray or torch.Tensor, got {type(patches).__name__}")
+            raise PipelineInputShapeError(
+                f"patches must be a numpy.ndarray or torch.Tensor, got {type(patches).__name__}"
+            )
 
         return tensor.to(device=self.device)
 
@@ -541,9 +583,13 @@ class Macenko(ModelPipeline):
         if patches.ndim == 3:
             patches = patches[np.newaxis, ...]
         if patches.ndim != 4:
-            raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+            raise PipelineInputShapeError(
+                f"Expected patch batch with 4D shape, got {patches.ndim}D"
+            )
         if patches.shape[1] != 3:
-            raise ValueError(f"Expected CHW patch batch with 3 channels, got {patches.shape}")
+            raise PipelineInputShapeError(
+                f"Expected CHW patch batch with 3 channels, got {patches.shape}"
+            )
 
         return patches.transpose(0, 2, 3, 1)
 
@@ -551,8 +597,12 @@ class Macenko(ModelPipeline):
         if patches.ndim == 3:
             patches = patches[np.newaxis, ...]
         if patches.ndim != 4:
-            raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+            raise PipelineInputShapeError(
+                f"Expected patch batch with 4D shape, got {patches.ndim}D"
+            )
         if patches.shape[-1] != 3:
-            raise ValueError(f"Expected HWC patch batch with 3 channels, got {patches.shape}")
+            raise PipelineInputShapeError(
+                f"Expected HWC patch batch with 3 channels, got {patches.shape}"
+            )
 
         return patches.transpose(0, 3, 1, 2)

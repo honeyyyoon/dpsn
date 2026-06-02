@@ -9,6 +9,15 @@ from ai.wsi.loaders.base import Loader
 from ai.wsi.patch import Patch
 from ai.wsi.patch_ref import PatchRef
 
+
+class TiffFileLoaderError(RuntimeError):
+    """Base class for tifffile loader errors."""
+
+
+class UnsupportedTiffShapeError(TiffFileLoaderError):
+    """Raised when a TIFF page shape cannot be interpreted as an image."""
+
+
 class TiffFileLoader(Loader):
     def __init__(self):
         super().__init__()
@@ -23,7 +32,9 @@ class TiffFileLoader(Loader):
             elif len(page.shape) == 3:
                 h, w = page.shape[:2]
             else:
-                raise ValueError(f"Unsupported TIFF shape: {page.shape}")
+                raise UnsupportedTiffShapeError(
+                    f"Unsupported TIFF shape: {page.shape}"
+                )
 
             dim = (w, h)
 
@@ -38,6 +49,10 @@ class TiffFileLoader(Loader):
     @staticmethod
     def load_patch(patch_ref: PatchRef) -> Patch:
         img = tifffile.imread(patch_ref.image_path)
+        if img.ndim != 3:
+            raise UnsupportedTiffShapeError(
+                f"Unsupported TIFF image shape for patch loading: {img.shape}"
+            )
 
         if img.dtype != np.uint8:
             img = img.astype(np.uint8)

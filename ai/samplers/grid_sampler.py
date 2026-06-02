@@ -1,9 +1,15 @@
 from __future__ import annotations
-import math
-import logging
 
 from ai.wsi.handle import WSIHandle
 from ai.wsi.patch_ref import PatchRef
+
+
+class GridSamplerError(RuntimeError):
+    """Base class for grid sampler errors."""
+
+
+class InvalidReadLevelError(GridSamplerError):
+    """Raised when the configured read level is not available in the WSI."""
 
 
 class GridSampler:
@@ -38,7 +44,7 @@ class GridSampler:
     ) -> list[PatchRef]:
         level_count = len(wsi_handle.level_dimensions)
         if not (0 <= self.read_level < level_count):
-            raise ValueError(
+            raise InvalidReadLevelError(
                 f"read_level {self.read_level} must be within [0, {level_count - 1}]"
             )
 
@@ -47,8 +53,6 @@ class GridSampler:
         patch_h = min(self.patch_size, read_h)
         stride = self.patch_size if self.stride is None else self.stride
         level = self.read_level
-
-        size = wsi_handle.level_dimensions[level]
 
         xs = self._grid_positions(read_w, patch_w, stride)
         ys = self._grid_positions(read_h, patch_h, stride)

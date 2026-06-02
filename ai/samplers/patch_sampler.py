@@ -63,10 +63,6 @@ class NoValidPatchError(PatchSamplerError):
     """Raised when no valid patches satisfy the mask/filter conditions."""
 
 
-class SlideOpenError(PatchSamplerError):
-    """Raised when the WSI cannot be opened properly."""
-
-
 class PatchSampler:
     """
     Patch sampler for WSI tissue masking + patch coordinate generation.

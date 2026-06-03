@@ -5,8 +5,6 @@ import torch
 from torchmetrics.functional.image import structural_similarity_index_measure
 from torchmetrics.image.fid import FrechetInceptionDistance
 
-from ai.metrics.custom import CustomStainMetric
-
 
 class MetricError(RuntimeError):
     """Base class for metric calculation errors."""
@@ -17,7 +15,7 @@ class MetricInputError(MetricError):
 
 
 class MissingTargetPatchError(MetricInputError):
-    """Raised when a target-dependent metric is enabled without a target patch."""
+    """Raised when FID is enabled without a target patch."""
 
 
 class MetricShapeError(MetricInputError):
@@ -30,7 +28,6 @@ class Metric:
         use_ssim: bool = True,
         use_psnr: bool = True,
         use_fid: bool = True,
-        use_custom: bool = False,
         target_patch: np.ndarray | torch.Tensor | None = None,
         fid_feature: int = 64,
         precision: int = 6
@@ -38,15 +35,9 @@ class Metric:
         self.use_ssim = use_ssim
         self.use_psnr = use_psnr
         self.use_fid = use_fid
-        self.use_custom = use_custom
         self.fid_device = torch.device("cpu")
         self.fid_feature = fid_feature
         self.precision = precision
-
-        if (self.use_fid or self.use_custom) and target_patch is None:
-            raise MissingTargetPatchError(
-                "타겟 의존 메트릭을 계산하려면 target_patch가 필요합니다."
-            )
 
         if self.use_fid:
             self.fid = FrechetInceptionDistance(
@@ -54,16 +45,14 @@ class Metric:
                 normalize=False,
             ).to(self.fid_device)
 
+            if target_patch is None:
+                raise MissingTargetPatchError("FID needs target patch but got None")
+
             if target_patch.ndim == 3:
                 target_patch = target_patch[np.newaxis, ...]
             
             tgt_imgs = self._to_uint8_images(target_patch).to(self.fid_device) # [B, C, H, W]
             self.fid.update(tgt_imgs, real=True)
-
-        if self.use_custom:
-            self.custom_metric = CustomStainMetric(
-                target_patch=target_patch,
-            )
 
         self.scores = {
             "ssim": 0.,
@@ -124,9 +113,6 @@ class Metric:
             norm_imgs = norm_imgs.to(self.fid_device)
             self.fid.update(norm_imgs, real=False)
 
-        if self.use_custom:
-            self.custom_metric.evaluate(source_patch, output_patch)
-
     def evaluate_torch(
         self,
         source_patch: torch.Tensor,
@@ -170,37 +156,16 @@ class Metric:
                 norm_imgs = self._to_uint8_images(output_patch).to(self.fid_device)
                 self.fid.update(norm_imgs, real=False)
 
-            if self.use_custom:
-                self.custom_metric.evaluate(source_patch, output_patch)
-
     def finalize(self) -> dict:
         if self.use_fid:
             self.fid = self.fid.to(self.fid_device)
             self.scores['fid'] = max(0.0, float(self.fid.compute().item()))
 
-        scores = {
+        return {
             "ssim": round(self.scores['ssim'] / self.counts['ssim'], 6) if self.use_ssim else None,
             "psnr": round(self.scores['psnr'] / self.counts['psnr'], 6) if self.use_psnr else None,
             "fid": round(self.scores['fid'], 6) if self.use_fid else None,
         }
-        if self.use_custom:
-            scores.update(self.custom_metric.finalize())
-        else:
-            scores.update(
-                {
-                    "stain_preservation_corr": None,
-                    "normalized_target_stain_angle_deg": None,
-                    "source_target_stain_angle_deg": None,
-                    "stain_angle_improvement_deg": None,
-                    "custom_structure_score": None,
-                    "custom_color_score": None,
-                    "source_stain_rank": None,
-                    "normalized_stain_rank": None,
-                    "target_stain_rank": None,
-                }
-            )
-
-        return scores
 
     def _to_bchw_tensor(self, patch: torch.Tensor) -> torch.Tensor:
         if not isinstance(patch, torch.Tensor):

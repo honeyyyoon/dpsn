@@ -23,20 +23,7 @@ export interface JobResultResponse {
   job_id: string;
   status: string;
   result_image_id: string;
-  metrics: {
-    ssim: number;
-    psnr: number;
-    fid: number;
-    stain_preservation_corr?: number | null;
-    normalized_target_stain_angle_deg?: number | null;
-    source_target_stain_angle_deg?: number | null;
-    stain_angle_improvement_deg?: number | null;
-    custom_structure_score?: number | null;
-    custom_color_score?: number | null;
-    source_stain_rank?: number | null;
-    normalized_stain_rank?: number | null;
-    target_stain_rank?: number | null;
-  };
+  metrics: { ssim: number; psnr: number; fid: number };
   elapsed_seconds: number;
 }
 
@@ -47,13 +34,12 @@ export interface ModelUi extends Model {
 }
 
 export interface MetricDef {
-  key: keyof JobResultResponse['metrics'];
+  key: 'psnr' | 'ssim' | 'fid';
   label: string;
   unit: string;
   higherBetter: boolean;
   desc: string;
   ref: number;
-  precision?: number;
 }
 
 export interface JobResult {

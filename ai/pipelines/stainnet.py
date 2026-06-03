@@ -119,14 +119,14 @@ class StainNetPipeline(ModelPipeline):
         self._emit_progress(emit_event, 1, "Preparing StainNet inference.")
 
         tgt_imgs = None
-        if "fid" in metrics or "custom" in metrics:
+        if "fid" in metrics:
             if target_img_path is None:
-                raise MissingTargetImageError("타겟 의존 메트릭을 계산하려면 타겟 이미지가 필요합니다.")
-            self._emit_progress(emit_event, 3, "Loading target patches for metrics.")
+                raise MissingTargetImageError("FID를 계산하려면 타겟 이미지가 필요합니다.")
+            self._emit_progress(emit_event, 3, "Loading target patches for FID.")
             tgt_wsi_handle = open_wsi_handle(target_img_path)
             tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
             tgt_imgs = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
-            self._emit_progress(emit_event, 6, "Loaded target patches for metrics.")
+            self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
 
@@ -178,7 +178,6 @@ class StainNetPipeline(ModelPipeline):
             use_ssim = "ssim" in metrics,
             use_psnr = "psnr" in metrics,
             use_fid = "fid" in metrics,
-            use_custom = "custom" in metrics,
             target_patch = tgt_imgs
         )
         self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")

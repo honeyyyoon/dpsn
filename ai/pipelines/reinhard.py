@@ -205,7 +205,6 @@ class Reinhard(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
-            use_custom="custom" in metrics,
             target_patch=target_images,
         )
 

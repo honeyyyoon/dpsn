@@ -11,8 +11,6 @@ export const MODELS: ModelUi[] = [
 
 export const METRIC_DEFS: MetricDef[] = [
   { key: 'psnr', label: 'PSNR',  unit: 'dB', higherBetter: true,  desc: 'Peak signal-to-noise ratio', ref: 22   },
-  { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity',       ref: 0.90, precision: 3 },
+  { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity',       ref: 0.90 },
   { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance',  ref: 60   },
-  { key: 'custom_structure_score', label: 'STRUCT', unit: '', higherBetter: true, desc: 'Custom structure coordinate', ref: 0.90, precision: 3 },
-  { key: 'custom_color_score', label: 'COLOR', unit: '', higherBetter: true, desc: 'Custom target-stain coordinate', ref: 0.0, precision: 3 },
 ];

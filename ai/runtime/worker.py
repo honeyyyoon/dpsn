@@ -40,42 +40,17 @@ class Worker:
     def run(self, task: Task, emit_event) -> TaskResult:
         emit_event(status="running", progress=1, message="Loading pipeline.")
         pipeline = self._create_pipeline(task.model_id)
-        metrics_to_compute = ["ssim", "psnr"]
-        if task.target_img_path is not None:
-            metrics_to_compute.extend(["fid", "custom"])
-
         pipeline_result = pipeline.run(
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            metrics_to_compute,
+            ["ssim", "psnr", "fid"],
             emit_event=emit_event
         )
         metrics = Metrics(
             ssim=self._score_or_zero(pipeline_result.scores.get("ssim")),
             psnr=self._score_or_zero(pipeline_result.scores.get("psnr")),
             fid=self._score_or_zero(pipeline_result.scores.get("fid")),
-            stain_preservation_corr=pipeline_result.scores.get(
-                "stain_preservation_corr"
-            ),
-            normalized_target_stain_angle_deg=pipeline_result.scores.get(
-                "normalized_target_stain_angle_deg"
-            ),
-            source_target_stain_angle_deg=pipeline_result.scores.get(
-                "source_target_stain_angle_deg"
-            ),
-            stain_angle_improvement_deg=pipeline_result.scores.get(
-                "stain_angle_improvement_deg"
-            ),
-            custom_structure_score=pipeline_result.scores.get(
-                "custom_structure_score"
-            ),
-            custom_color_score=pipeline_result.scores.get("custom_color_score"),
-            source_stain_rank=pipeline_result.scores.get("source_stain_rank"),
-            normalized_stain_rank=pipeline_result.scores.get(
-                "normalized_stain_rank"
-            ),
-            target_stain_rank=pipeline_result.scores.get("target_stain_rank"),
         )
 
         return TaskResult(

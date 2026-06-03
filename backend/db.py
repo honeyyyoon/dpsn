@@ -1,6 +1,9 @@
 import sqlite3
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATA_DIR = Path(os.environ.get("DPSN_DATA_DIR", "/mnt/Disk1/dpsn_data"))
 DB_PATH = DATA_DIR / "app.db"

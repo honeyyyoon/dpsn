@@ -23,6 +23,10 @@ function formatElapsed(seconds?: number | null): string {
   return `${Math.floor(s / 60)}분 ${s % 60}초`;
 }
 
+function formatMetricValue(def: MetricDef, value: number): string {
+  return value.toFixed(def.precision ?? 2);
+}
+
 interface MetricCardProps {
   def: MetricDef;
   value: number;
@@ -65,7 +69,7 @@ function MetricCard({ def, value }: MetricCardProps) {
             color,
           }}
         >
-          {def.key === "ssim" ? value.toFixed(3) : value.toFixed(2)}
+          {formatMetricValue(def, value)}
         </div>
         {def.unit && (
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -338,7 +342,7 @@ function ResultCard({
               flex: 1,
             }}
           >
-            {METRIC_DEFS.map((def) => {
+            {METRIC_DEFS.slice(0, 3).map((def) => {
               const isBest = best[def.key] === model.id;
               const val =
                 result?.metrics[def.key as keyof JobResult["metrics"]] ?? 0;
@@ -372,7 +376,7 @@ function ResultCard({
                       color: metricColor(def, val),
                     }}
                   >
-                    {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                    {formatMetricValue(def, val)}
                   </div>
                 </div>
               );
@@ -523,7 +527,7 @@ export function SingleResult({
 }
 
 export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }: { models: ModelUi[]; results: Record<number, JobResult>; failedJobs?: Record<number, FailedJobInfo>; srcImageId?: string }) {
-  const [sortKey, setSortKey] = useState<"psnr" | "ssim" | "fid">("psnr");
+  const [sortKey, setSortKey] = useState<MetricDef["key"]>("psnr");
   const [hiddenModels, setHiddenModels] = useState<Set<number>>(new Set());
   const seed = 7;
 
@@ -558,8 +562,11 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
   const best: Record<string, number> = {};
   METRIC_DEFS.forEach((def) => {
     const vals = successModels
-      .filter((m) => results[m.id]?.metrics[def.key as keyof (typeof results)[number]["metrics"]] != null)
-      .map((m) => ({ id: m.id, v: results[m.id].metrics[def.key as keyof (typeof results)[number]["metrics"]] }));
+      .map((m) => ({
+        id: m.id,
+        v: results[m.id]?.metrics[def.key],
+      }))
+      .filter((item): item is { id: number; v: number } => typeof item.v === "number");
     vals.sort((x, y) => (def.higherBetter ? y.v - x.v : x.v - y.v));
     if (vals.length > 0) best[def.key] = vals[0].id;
   });
@@ -756,7 +763,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                         <td key={def.key} style={{ ...tdStyle, textAlign: "right" }} className="num">
                           <span style={{ fontWeight: isBest ? 700 : 500, color: metricColor(def, val) }}>
                             {isBest && <span style={{ marginRight: 4, color: "var(--text-muted)" }}>★</span>}
-                            {def.key === "ssim" ? val.toFixed(3) : val.toFixed(2)}
+                            {formatMetricValue(def, val)}
                           </span>
                         </td>
                       );

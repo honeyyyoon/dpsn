@@ -44,6 +44,7 @@ class Reinhard(ModelPipeline):
         batch_size: int = 64,
         patch_size: int = 256,
         max_sample_patches: int = 16,
+        max_target_sample_patches: int = 512,
         max_iteration: int = 128,
         device: str | torch.device | None = None,
     ):
@@ -51,6 +52,7 @@ class Reinhard(ModelPipeline):
         self.batch_size = int(batch_size)
         self.patch_size = int(patch_size)
         self.max_sample_patches = int(max_sample_patches)
+        self.max_target_sample_patches = int(max_target_sample_patches)
         self.max_iteration = int(max_iteration)
         self.device = self._select_device(device)
         self._color_constants_cache: dict[
@@ -91,6 +93,7 @@ class Reinhard(ModelPipeline):
             patch_sampler=patch_sampler,
             wsi_handle=target_wsi_handle,
             label="target",
+            max_patches=self.max_target_sample_patches,
         )
 
         target_stats = self._fit_stats(tgt_images, label="target")
@@ -150,6 +153,11 @@ class Reinhard(ModelPipeline):
             raise ValueError(
                 f"max_sample_patches는 0보다 커야 합니다. 입력값: {self.max_sample_patches}"
             )
+        if self.max_target_sample_patches <= 0:
+            raise ValueError(
+                "max_target_sample_patches는 0보다 커야 합니다. "
+                f"입력값: {self.max_target_sample_patches}"
+            )
         if self.max_iteration <= 0:
             raise ValueError(f"max_iteration은 0보다 커야 합니다. 입력값: {self.max_iteration}")
 
@@ -175,11 +183,12 @@ class Reinhard(ModelPipeline):
         patch_sampler: PatchSampler,
         wsi_handle,
         label: str,
+        max_patches: int | None = None,
     ) -> np.ndarray:
         self.logger.info(f"Sample {label} image")
         refs = patch_sampler.sample(
             wsi_handle,
-            max_patches=self.max_sample_patches,
+            max_patches=max_patches or self.max_sample_patches,
             mode="training",
             save_debug=False,
         )
@@ -205,6 +214,7 @@ class Reinhard(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
+            use_gaussian_color_dist="gaussian_color_dist" in metrics,
             target_patch=target_images,
         )
 
@@ -284,14 +294,14 @@ class Reinhard(ModelPipeline):
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
-            metric.evaluate_torch(patch_tensor, new_patch_tensor)
-            timer['metric'] += time.time() - t0
-
-            t0 = time.time()
             new_patches = self._to_chw_uint8_numpy(new_patch_tensor)
             for i, ref in enumerate(batch_ref):
                 writer.write_patch(ref, new_patches[i])
             timer['writer'] += time.time() - t0
+
+            t0 = time.time()
+            metric.evaluate_torch(patch_tensor, new_patch_tensor)
+            timer['metric'] += time.time() - t0
 
             if emit_event:
                 emit_event(

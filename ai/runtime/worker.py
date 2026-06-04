@@ -21,6 +21,10 @@ class InvalidPipelineResultError(WorkerError):
     """Raised when a pipeline does not return the expected output path."""
 
 
+class PipelineImportError(WorkerError):
+    """Raised when a registered pipeline module or class cannot be loaded."""
+
+
 PIPELINE_MAP: dict[int, str] = {
     1: "ai.pipelines.reinhard:Reinhard",
     2: "ai.pipelines.macenko:Macenko",  
@@ -53,9 +57,9 @@ class Worker:
             emit_event=emit_event
         )
         metrics = Metrics(
-            ssim=pipeline_result.scores.get("ssim", 0.0), 
-            psnr=pipeline_result.scores.get("psnr", 0.0), 
-            fid=pipeline_result.scores.get("fid", 0.0)
+            ssim=self._score_or_zero(pipeline_result.scores.get("ssim")),
+            psnr=self._score_or_zero(pipeline_result.scores.get("psnr")),
+            fid=self._score_or_zero(pipeline_result.scores.get("fid")),
         )
 
         return TaskResult(
@@ -68,26 +72,29 @@ class Worker:
         pipeline_path = PIPELINE_MAP.get(model_id)
         if pipeline_path is None:
             raise UnknownModelError(
-                f"model_id {model_id} does not have a registered pipeline."
+                f"model_id {model_id}에 등록된 파이프라인이 없습니다."
             )
 
         module_path, class_name = pipeline_path.split(":", maxsplit=1)
-        module = import_module(module_path)
-        pipeline_class = getattr(module, class_name)
-        logger = self._build_logger(Path("result/log.txt"))
+        try:
+            module = import_module(module_path)
+            pipeline_class = getattr(module, class_name)
+        except (ImportError, AttributeError) as error:
+            raise PipelineImportError(
+                f"model_id {model_id}의 파이프라인 '{pipeline_path}'을 불러오지 못했습니다: {error}"
+            ) from error
+        return pipeline_class(self._build_logger(Path("result/log.txt")))
 
-        config_class_name = PIPELINE_CONFIG_MAP.get(model_id)
-        if config_class_name is not None:
-            config_class = getattr(module, config_class_name)
-            return pipeline_class(logger, config=config_class(device=device or "auto"))
-
-        return pipeline_class(logger, device=device)
+    def _score_or_zero(self, value: Any) -> float:
+        if value is None:
+            return 0.0
+        return float(value)
 
     def _get_result_img_path(self, pipeline_result: Any) -> Path:
         output_path = getattr(pipeline_result, "output_path", None)
         if not output_path:
             raise InvalidPipelineResultError(
-                "Pipeline result must contain a non-empty output_path."
+                "파이프라인 결과에는 비어 있지 않은 output_path가 필요합니다."
             )
 
         return Path(output_path)

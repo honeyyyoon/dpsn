@@ -5,6 +5,23 @@ import torch
 from torchmetrics.functional.image import structural_similarity_index_measure
 from torchmetrics.image.fid import FrechetInceptionDistance
 
+
+class MetricError(RuntimeError):
+    """Base class for metric calculation errors."""
+
+
+class MetricInputError(MetricError):
+    """Raised when metric input patches are invalid."""
+
+
+class MissingTargetPatchError(MetricInputError):
+    """Raised when FID is enabled without a target patch."""
+
+
+class MetricShapeError(MetricInputError):
+    """Raised when metric input shapes are invalid or incompatible."""
+
+
 class Metric:
     def __init__(
         self,
@@ -29,8 +46,8 @@ class Metric:
             ).to(self.fid_device)
 
             if target_patch is None:
-                raise ValueError("FID needs target patch but got None")
-            
+                raise MissingTargetPatchError("FID needs target patch but got None")
+
             if target_patch.ndim == 3:
                 target_patch = target_patch[np.newaxis, ...]
             
@@ -40,7 +57,7 @@ class Metric:
         self.scores = {
             "ssim": 0.,
             "psnr": 0.,
-            "fid": 0.
+            "fid": 0.,
         }
         self.counts = {
             "ssim": 0,
@@ -53,9 +70,9 @@ class Metric:
         output_patch: np.ndarray
     ) -> None:
         if source_patch.shape != output_patch.shape:
-            raise ValueError(
-                f"source_patch and output_patch must have the same shape, got "
-                f"{source_patch.shape} vs {output_patch.shape}"
+            raise MetricShapeError(
+                f"source_patch와 output_patch의 shape이 같아야 합니다. "
+                f"입력 shape: {source_patch.shape} vs {output_patch.shape}"
             )
 
         if source_patch.ndim == 3:
@@ -102,9 +119,9 @@ class Metric:
         output_patch: torch.Tensor,
     ) -> None:
         if source_patch.shape != output_patch.shape:
-            raise ValueError(
-                f"source_patch and output_patch must have the same shape, got "
-                f"{source_patch.shape} vs {output_patch.shape}"
+            raise MetricShapeError(
+                f"source_patch와 output_patch의 shape이 같아야 합니다. "
+                f"입력 shape: {source_patch.shape} vs {output_patch.shape}"
             )
 
         with torch.no_grad():
@@ -152,13 +169,19 @@ class Metric:
 
     def _to_bchw_tensor(self, patch: torch.Tensor) -> torch.Tensor:
         if not isinstance(patch, torch.Tensor):
-            raise TypeError(f"patch must be a torch.Tensor, got {type(patch).__name__}")
+            raise MetricInputError(
+                f"patch는 torch.Tensor 타입이어야 합니다. 입력 타입: {type(patch).__name__}"
+            )
         if patch.ndim == 3:
             patch = patch.unsqueeze(0)
         if patch.ndim != 4:
-            raise ValueError(f"patch must have shape [B, C, H, W], got {tuple(patch.shape)}")
+            raise MetricShapeError(
+                f"patch는 [B, C, H, W] shape이어야 합니다. 입력 shape: {tuple(patch.shape)}"
+            )
         if patch.shape[1] != 3:
-            raise ValueError(f"patch must have 3 channels in CHW format, got {tuple(patch.shape)}")
+            raise MetricShapeError(
+                f"patch는 CHW 형식의 3채널이어야 합니다. 입력 shape: {tuple(patch.shape)}"
+            )
 
         return patch
 
@@ -186,8 +209,8 @@ class Metric:
         if kernel_size % 2 == 0:
             kernel_size -= 1
         if kernel_size < 3:
-            raise ValueError(
-                f"SSIM needs patch height and width >= 3, got {tuple(patch.shape[-2:])}"
+            raise MetricShapeError(
+                f"SSIM 계산에는 높이와 너비가 각각 3 이상인 patch가 필요합니다. 입력 크기: {tuple(patch.shape[-2:])}"
             )
 
         return kernel_size

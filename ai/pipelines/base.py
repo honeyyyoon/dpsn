@@ -4,6 +4,15 @@ from pathlib import Path
 
 from ai.pipelines.result import PipelineResult
 
+
+class PipelineError(RuntimeError):
+    """Base class for pipeline errors."""
+
+
+class PipelineInputShapeError(PipelineError):
+    """Raised when a pipeline receives tensors or arrays with invalid shapes."""
+
+
 class ModelPipeline(ABC):
     logger: logging.Logger
     

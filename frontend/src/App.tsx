@@ -4,7 +4,7 @@ import { useNavigate, useMatch } from "react-router-dom";
 import "./styles.css";
 import { MODELS } from "./data";
 import type { UiJob, JobResult, FailedJobInfo } from "./types";
-import { createJobs, addModels, getJobStatus, getJobResult, deleteJob, fetchJobs, getImageUrl } from "./api";
+import { createJobs, addModels, getJobStatus, getJobResult, deleteJob, fetchJobs, getImageDownloadUrl } from "./api";
 import Sidebar from "./components/Sidebar";
 import Icon from "./components/Icon";
 import { UploadCard, ModelPicker } from "./components/ConfigPanel";
@@ -633,9 +633,10 @@ export default function App() {
     const zip = new JSZip();
     await Promise.all(targets.map(async ({ name, imageId }) => {
       try {
-        const res = await fetch(getImageUrl(imageId));
+        const filename = `${name}_normalized.tiff`;
+        const res = await fetch(getImageDownloadUrl(imageId, filename));
         if (!res.ok) return;
-        zip.file(`${name}_normalized.png`, await res.blob());
+        zip.file(filename, await res.blob());
       } catch { /* 개별 이미지 실패 시 나머지 계속 */ }
     }));
     const blob = await zip.generateAsync({ type: 'blob' });

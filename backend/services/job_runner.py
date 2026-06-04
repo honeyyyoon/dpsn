@@ -143,12 +143,14 @@ def run_job(job_id: str, model_id: int, image_id: str):
                 (job_id,),
             )
     except Exception as e:
-        print("Error:", e)
-        traceback.print_exc()
+        message = str(e).strip() or type(e).__name__
+        error_detail = traceback.format_exc()
+        print("Error:", message)
+        print(error_detail)
         with get_conn() as conn:
             conn.execute(
                 "UPDATE jobs SET status = 'failed', message = ?, error_detail = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                ("오류가 발생했습니다.\n문제가 지속되면 담당자에게 문의해주세요.", str(e), job_id),
+                (message, error_detail, job_id),
             )
     finally:
         _device_queue.put(device)

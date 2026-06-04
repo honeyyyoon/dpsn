@@ -16,3 +16,9 @@ from ai.pipelines.stainswin import (
     StainSWINInferenceConfig,
     StainSWINPipeline,
 )
+from ai.pipelines.multistain_cyclegan import (
+    MultiStainCycleGAN,
+    MultiStainCycleGANConfig,
+    MultiStainCycleGANInferenceConfig,
+    MultiStainCycleGANPipeline,
+)

@@ -223,12 +223,14 @@ def save_checkpoint(
     epoch: int,
     optimizer: torch.optim.Optimizer,
     path: Path,
+    val_loss: float | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "epoch": epoch,
             "experiment_name": config.experiment_name,
+            "val_loss": val_loss,
             "model_state_dict": unwrap_parallel(model).state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "config": asdict(config),
@@ -295,6 +297,10 @@ def _train_with_batch_size(
     latest_checkpoint_path = (
         config.checkpoints_dir / f"{config.experiment_name}_latest.pth"
     )
+    best_checkpoint_path = (
+        config.checkpoints_dir / f"{config.experiment_name}_best.pth"
+    )
+    best_val_loss = float("inf")
 
     for epoch in range(1, config.epochs + 1):
         train_loss = train_one_epoch(
@@ -322,6 +328,7 @@ def _train_with_batch_size(
                 f"train_l1={train_loss:.6f} val_l1={val_loss:.6f}"
             )
         else:
+            val_loss = None
             print(f"epoch {epoch}/{config.epochs} - train_l1={train_loss:.6f}")
 
         scheduler.step()
@@ -336,6 +343,7 @@ def _train_with_batch_size(
             epoch=epoch,
             optimizer=optimizer,
             path=epoch_checkpoint_path,
+            val_loss=val_loss,
         )
         save_checkpoint(
             model=model,
@@ -343,8 +351,25 @@ def _train_with_batch_size(
             epoch=epoch,
             optimizer=optimizer,
             path=latest_checkpoint_path,
+            val_loss=val_loss,
         )
+        if val_loss is not None and val_loss < best_val_loss:
+            best_val_loss = val_loss
+            save_checkpoint(
+                model=model,
+                config=config,
+                epoch=epoch,
+                optimizer=optimizer,
+                path=best_checkpoint_path,
+                val_loss=val_loss,
+            )
+            print(
+                f"Updated best checkpoint: {best_checkpoint_path} "
+                f"val_l1={best_val_loss:.6f}"
+            )
 
+    if best_val_loss < float("inf"):
+        return best_checkpoint_path
     return latest_checkpoint_path
 
 
@@ -520,7 +545,7 @@ def main() -> None:
         gpu_ids=tuple(args.gpu_ids),
     )
     checkpoint_path = train(config)
-    print(f"Saved latest checkpoint to {checkpoint_path}")
+    print(f"Saved checkpoint to {checkpoint_path}")
 
 
 if __name__ == "__main__":

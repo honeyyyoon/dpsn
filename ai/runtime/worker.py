@@ -34,6 +34,14 @@ PIPELINE_MAP: dict[int, str] = {
     4: "ai.pipelines.staingan:StainGANPipeline",  
     5: "ai.pipelines.stainnet:StainNetPipeline",
     6: "ai.pipelines.stainswin:StainSWINPipeline",
+    7: "ai.pipelines.multistain_cyclegan:MultiStainCycleGANPipeline",
+}
+
+PIPELINE_CONFIG_MAP: dict[int, str] = {
+    4: "StainGANInferenceConfig",
+    5: "StainNetInferenceConfig",
+    6: "StainSWINInferenceConfig",
+    7: "MultiStainCycleGANInferenceConfig",
 }
 
 class Worker:

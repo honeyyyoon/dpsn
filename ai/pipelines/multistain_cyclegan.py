@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import pickle
 import logging
+import pickle
 from pathlib import Path
 from pathlib import PosixPath, WindowsPath
 import time
@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from ai.metrics.metric import Metric
-from ai.models.stainnet.stainnet_model import StainNet as StainNetModel
+from ai.models.multistain.networks import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
@@ -21,82 +21,37 @@ from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.writer import MultiZarrWSIWriter
 
 
-class StainNetError(RuntimeError):
-    """Base class for StainNet pipeline errors."""
-
-
-class MissingTargetImageError(StainNetError):
-    """Raised when target-dependent metrics are requested without a target image."""
-
-
-class StainNetReadLevelError(StainNetError):
-    """Raised when the configured read level is not available in the WSI."""
-
-
-class StainNetCheckpointError(StainNetError):
-    """Base class for StainNet checkpoint errors."""
-
-
-class StainNetCheckpointNotFoundError(StainNetCheckpointError):
-    """Raised when a required StainNet checkpoint cannot be found."""
-
-
-class StainNetCheckpointLoadError(StainNetCheckpointError):
-    """Raised when a StainNet checkpoint cannot be loaded safely."""
-
-
-class StainNetCheckpointSelectionError(StainNetCheckpointError):
-    """Raised when checkpoint discovery finds ambiguous candidates."""
-
-
-class StainNetInvalidCheckpointError(StainNetCheckpointError):
-    """Raised when a StainNet checkpoint does not contain usable model weights."""
-
-
-class StainNetDeviceError(StainNetError):
-    """Raised when the requested device is not allowed for StainNet inference."""
-
-
-# class that stores all settings needed for StainNet WSI inference
 @dataclass(slots=True)
-class StainNetInferenceConfig:
-    """
-    Configuration for patch-wise WSI inference with a trained StainNet model.
-    """
-
+class MultiStainCycleGANInferenceConfig:
     checkpoint_path: Path | None = None
-    checkpoint_dir: Path = Path(__file__).resolve().parents[1] / "checkpoints" / "stainnet"
-    # output_dir: Path = Path("/mnt/Disk1/dpsn_datasets/inf_result_stainnet")
+    checkpoint_dir: Path = Path("/home/snu_2026/dpsn/ai/checkpoints/multistain")
 
     input_nc: int = 3
     output_nc: int = 3
-    channels: int = 32
-    n_layer: int = 3
-    kernel_size: int = 1
+    ngf: int = 64
+    generator_blocks: int = 9
+    generator_key: str = "net_g_source_to_target"
 
     patch_size: int = 512
     stride: int = 512
     read_level: int = 0
     batch_size: int = 8
-    tile_size: int = 512 # small rectangular chunks called that a WSI is divided and saved in
+    tile_size: int = 512
+    pyramid_levels: int = 3
     device: str = "auto"
-    keep_store: bool = False # whether to keep the writer’s intermediate storage after output is finalized
     verbose: bool = True
     log_every_batches: int = 5
     compute_ssim: bool = True
 
-# Class that performs the whole inference procedure on a WSI
-class StainNetPipeline(ModelPipeline):
-    """
-    WSI inference pipeline for a trained StainNet model.
 
-    This path is for inference only. Training uses paired aligned image/patch
-    folders and lives in separate dataset/training modules.
-    """
-
-    def __init__(self, logger: logging.Logger | None, config: StainNetInferenceConfig | None = None) -> None:
+class MultiStainCycleGANPipeline(ModelPipeline):
+    def __init__(
+        self,
+        logger: logging.Logger | None,
+        config: MultiStainCycleGANInferenceConfig | None = None,
+    ) -> None:
         super().__init__(logger=logger)
-        self.config = config or StainNetInferenceConfig()
+        self.config = config or MultiStainCycleGANInferenceConfig()
         self._validate_config()
 
         self.device = self._select_device(self.config.device)
@@ -114,18 +69,18 @@ class StainNetPipeline(ModelPipeline):
         result_path: Path,
         target_img_path: Path | None = None,
         metrics: list[str] = [],
-        emit_event=None
+        emit_event=None,
     ) -> PipelineResult:
-        self._emit_progress(emit_event, 1, "Preparing StainNet inference.")
+        self._emit_progress(emit_event, 1, "Preparing MultiStain-CycleGAN inference.")
 
-        tgt_imgs = None
-        if "fid" in metrics or "gaussian_color_dist" in metrics:
+        tgt_images = None
+        if "fid" in metrics:
             if target_img_path is None:
-                raise MissingTargetImageError("FID를 계산하려면 타겟 이미지가 필요합니다.")
+                raise ValueError("FID needs target image")
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
             tgt_wsi_handle = open_wsi_handle(target_img_path)
             tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
-            tgt_imgs = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
             self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
@@ -134,16 +89,13 @@ class StainNetPipeline(ModelPipeline):
         src_wsi_handle = open_wsi_handle(src_img_path)
         level_count = len(src_wsi_handle.level_dimensions)
         if not (0 <= self.config.read_level < level_count):
-            raise StainNetReadLevelError(
-                f"read_level {self.config.read_level}은 0 이상 {level_count - 1} 이하이어야 합니다."
+            raise ValueError(
+                f"read_level {self.config.read_level} must be within [0, {level_count - 1}]"
             )
 
         read_w, read_h = src_wsi_handle.level_dimensions[self.config.read_level]
-        level_downsample = float(
-            src_wsi_handle.level_downsamples[self.config.read_level]
-        )
+        level_downsample = float(src_wsi_handle.level_downsamples[self.config.read_level])
         refs = self.grid_sampler.sample(src_wsi_handle)
-        # output_path = self._build_output_path(src_img_path)
         total_refs = len(refs)
         total_batches = (total_refs + self.config.batch_size - 1) // self.config.batch_size
 
@@ -151,16 +103,10 @@ class StainNetPipeline(ModelPipeline):
         self._log_run_summary(
             src_img_path=src_img_path,
             checkpoint_path=checkpoint_path,
-            output_path=Path("result"),
+            output_path=result_path,
             wsi_handle=src_wsi_handle,
             total_refs=total_refs,
             total_batches=total_batches,
-        )
-
-        self._log(
-            f"Loaded WSI metadata: read_level={self.config.read_level}, "
-            f"level_shape=({read_w}, {read_h}), total_patches={total_refs}, "
-            f"batch_size={self.config.batch_size}, total_batches={total_batches}"
         )
 
         writer = MultiZarrWSIWriter(
@@ -171,15 +117,15 @@ class StainNetPipeline(ModelPipeline):
             channels=3,
             tile_size=self.config.tile_size,
             overwrite=True,
+            pyramid_levels=self.config.pyramid_levels,
         )
 
         run_start = time.time()
         metric = Metric(
-            use_ssim = "ssim" in metrics,
-            use_psnr = "psnr" in metrics,
-            use_fid = "fid" in metrics,
-            use_gaussian_color_dist = "gaussian_color_dist" in metrics,
-            target_patch = tgt_imgs
+            use_ssim="ssim" in metrics,
+            use_psnr="psnr" in metrics,
+            use_fid="fid" in metrics,
+            target_patch=tgt_images,
         )
         self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")
 
@@ -212,15 +158,10 @@ class StainNetPipeline(ModelPipeline):
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_refs - processed
                 eta_seconds = remaining / rate if rate > 0 else float("inf")
-                eta_text = (
-                    f"{eta_seconds:.1f}s"
-                    if np.isfinite(eta_seconds)
-                    else "unknown"
-                )
+                eta_text = f"{eta_seconds:.1f}s" if np.isfinite(eta_seconds) else "unknown"
                 self._log(
                     f"Processed batch {batch_index}/{total_batches} "
-                    f"({processed}/{total_refs} patches, "
-                    f"{rate:.2f} patches/s, eta {eta_text})"
+                    f"({processed}/{total_refs} patches, {rate:.2f} patches/s, eta {eta_text})"
                 )
 
         self._log("Finalizing MultiZarr writer and writing WSI TIFF...")
@@ -230,7 +171,7 @@ class StainNetPipeline(ModelPipeline):
         total_elapsed = time.time() - run_start
         self._emit_progress(emit_event, 95, "Computing final metrics.")
         normalized_scores = metric.finalize()
-        self._emit_progress(emit_event, 98, "Finalizing StainNet result.")
+        self._emit_progress(emit_event, 98, "Finalizing MultiStain-CycleGAN result.")
 
         self._log(
             f"Finished inference in {total_elapsed:.1f}s. "
@@ -247,37 +188,33 @@ class StainNetPipeline(ModelPipeline):
 
     def _validate_config(self) -> None:
         if self.config.patch_size <= 0:
-            raise ValueError("patch_size는 0보다 커야 합니다.")
+            raise ValueError("patch_size must be > 0")
         if self.config.stride <= 0:
-            raise ValueError("stride는 0보다 커야 합니다.")
+            raise ValueError("stride must be > 0")
         if self.config.read_level < 0:
-            raise ValueError("read_level은 0 이상이어야 합니다.")
+            raise ValueError("read_level must be >= 0")
         if self.config.batch_size <= 0:
-            raise ValueError("batch_size는 0보다 커야 합니다.")
+            raise ValueError("batch_size must be > 0")
         if self.config.tile_size <= 0:
-            raise ValueError("tile_size는 0보다 커야 합니다.")
+            raise ValueError("tile_size must be > 0")
+        if self.config.pyramid_levels < 0:
+            raise ValueError("pyramid_levels must be >= 0")
 
-    def _load_model(self) -> StainNetModel:
+    def _load_model(self) -> ResnetGenerator:
         checkpoint_path = self._resolve_checkpoint_path()
         checkpoint = self._load_checkpoint(checkpoint_path)
         self._apply_checkpoint_model_config(checkpoint)
 
-        model = StainNetModel(
+        model = ResnetGenerator(
             input_nc=self.config.input_nc,
             output_nc=self.config.output_nc,
-            n_layer=self.config.n_layer,
-            n_channel=self.config.channels,
-            kernel_size=self.config.kernel_size,
+            ngf=self.config.ngf,
+            n_blocks=self.config.generator_blocks,
         )
 
         state_dict = self._extract_state_dict(checkpoint)
         state_dict = self._strip_module_prefix(state_dict)
-        try:
-            model.load_state_dict(state_dict)
-        except RuntimeError as error:
-            raise StainNetInvalidCheckpointError(
-                f"StainNet state_dict를 불러오지 못했습니다: {error}"
-            ) from error
+        model.load_state_dict(state_dict)
         return model
 
     def _apply_checkpoint_model_config(self, checkpoint: Any) -> None:
@@ -288,17 +225,10 @@ class StainNetPipeline(ModelPipeline):
         if not isinstance(checkpoint_config, dict):
             return
 
-        config_key_map = {
-            "input_nc": "input_nc",
-            "output_nc": "output_nc",
-            "channels": "channels",
-            "n_layer": "n_layer",
-            "kernel_size": "kernel_size",
-        }
-        for checkpoint_key, config_field in config_key_map.items():
-            value = checkpoint_config.get(checkpoint_key)
+        for field_name in ("input_nc", "output_nc", "ngf", "generator_blocks"):
+            value = checkpoint_config.get(field_name)
             if value is not None:
-                setattr(self.config, config_field, value)
+                setattr(self.config, field_name, value)
 
     def _load_checkpoint(self, checkpoint_path: Path) -> Any:
         try:
@@ -308,9 +238,6 @@ class StainNetPipeline(ModelPipeline):
                 weights_only=True,
             )
         except pickle.UnpicklingError as exc:
-            # Our own training checkpoints store config metadata containing
-            # pathlib paths, which strict weights-only loading blocks unless
-            # those classes are explicitly allowlisted.
             torch.serialization.add_safe_globals([Path, PosixPath, WindowsPath])
             try:
                 return torch.load(
@@ -318,30 +245,26 @@ class StainNetPipeline(ModelPipeline):
                     map_location=self.device,
                     weights_only=True,
                 )
-            except Exception as error:
-                raise StainNetCheckpointLoadError(
-                    "StainNet checkpoint를 weights-only 모드로 불러오지 못했습니다. "
-                    "이 프로젝트 외부에서 생성된 checkpoint라면 loader 제한을 완화하기 전에 "
-                    "파일 내용을 먼저 확인하세요."
-                ) from error
-        except Exception as error:
-            raise StainNetCheckpointLoadError(
-                f"StainNet checkpoint를 불러오지 못했습니다: {checkpoint_path}. {error}"
-            ) from error
+            except pickle.UnpicklingError:
+                raise ValueError(
+                    "Failed to load the MultiStain-CycleGAN checkpoint in weights-only mode. "
+                    "If this checkpoint was produced outside this project, inspect "
+                    "its contents before relaxing the loader further."
+                ) from exc
 
     def _resolve_checkpoint_path(self) -> Path:
         if self.config.checkpoint_path is not None:
             checkpoint_path = Path(self.config.checkpoint_path)
             if not checkpoint_path.is_file():
-                raise StainNetCheckpointNotFoundError(
-                    f"StainNet checkpoint를 찾을 수 없습니다: {checkpoint_path}"
+                raise FileNotFoundError(
+                    f"MultiStain-CycleGAN checkpoint not found: {checkpoint_path}"
                 )
             return checkpoint_path
 
         checkpoint_dir = Path(self.config.checkpoint_dir)
         if not checkpoint_dir.is_dir():
-            raise StainNetCheckpointNotFoundError(
-                f"StainNet checkpoint 디렉터리를 찾을 수 없습니다: {checkpoint_dir}"
+            raise FileNotFoundError(
+                f"MultiStain-CycleGAN checkpoint directory not found: {checkpoint_dir}"
             )
 
         best_candidates = sorted(
@@ -355,7 +278,7 @@ class StainNetPipeline(ModelPipeline):
         if len(best_candidates) > 1:
             names = ", ".join(str(path) for path in best_candidates)
             raise ValueError(
-                "Multiple StainNet best checkpoint files found. "
+                "Multiple MultiStain-CycleGAN best checkpoint files found. "
                 f"Pass checkpoint_path explicitly: {names}"
             )
 
@@ -369,9 +292,9 @@ class StainNetPipeline(ModelPipeline):
             return latest_candidates[0]
         if len(latest_candidates) > 1:
             names = ", ".join(str(path) for path in latest_candidates)
-            raise StainNetCheckpointSelectionError(
-                "StainNet latest checkpoint 파일이 여러 개 발견되었습니다. "
-                f"checkpoint_path를 명시적으로 지정하세요: {names}"
+            raise ValueError(
+                "Multiple MultiStain-CycleGAN latest checkpoint files found. "
+                f"Pass checkpoint_path explicitly: {names}"
             )
 
         candidates = sorted(
@@ -380,22 +303,32 @@ class StainNetPipeline(ModelPipeline):
                 *checkpoint_dir.glob("*.pt"),
             ]
         )
-
         if not candidates:
-            raise StainNetCheckpointNotFoundError(
-                f"StainNet checkpoint를 찾을 수 없습니다: {checkpoint_dir}"
+            raise FileNotFoundError(
+                f"No MultiStain-CycleGAN checkpoint found in: {checkpoint_dir}"
             )
         if len(candidates) > 1:
             names = ", ".join(str(path) for path in candidates)
-            raise StainNetCheckpointSelectionError(
-                "checkpoint 파일이 여러 개 발견되었습니다. checkpoint_path를 명시적으로 지정하세요: "
+            raise ValueError(
+                "Multiple checkpoint files found. Pass checkpoint_path explicitly: "
                 f"{names}"
             )
         return candidates[0]
 
     def _extract_state_dict(self, checkpoint: Any) -> dict[str, torch.Tensor]:
         if isinstance(checkpoint, dict):
-            for key in ("state_dict", "model_state_dict", "net", "model"):
+            preferred_keys = (
+                self.config.generator_key,
+                "net_g_source_to_target",
+                "g_source_to_target_state_dict",
+                "g_source_to_canonical_state_dict",
+                "g_a2b_state_dict",
+                "state_dict",
+                "model_state_dict",
+                "net",
+                "model",
+            )
+            for key in preferred_keys:
                 value = checkpoint.get(key)
                 if isinstance(value, dict):
                     return value
@@ -403,7 +336,9 @@ class StainNetPipeline(ModelPipeline):
             if all(isinstance(key, str) for key in checkpoint.keys()):
                 return checkpoint
 
-        raise StainNetInvalidCheckpointError("checkpoint에 유효한 state_dict가 없습니다.")
+        raise ValueError(
+            "Checkpoint does not contain a valid MultiStain-CycleGAN generator state_dict."
+        )
 
     def _strip_module_prefix(
         self,
@@ -412,7 +347,6 @@ class StainNetPipeline(ModelPipeline):
         prefix = "module."
         if not any(key.startswith(prefix) for key in state_dict):
             return state_dict
-
         return {
             key[len(prefix):] if key.startswith(prefix) else key: value
             for key, value in state_dict.items()
@@ -424,30 +358,51 @@ class StainNetPipeline(ModelPipeline):
             device=self.device,
             dtype=torch.float32,
         )
-
-        # Original StainNet test code maps [0, 1] -> [-1, 1] before inference.
         tensor = (tensor - 0.5) * 2.0
 
         with torch.inference_mode():
             output = self.model(tensor)
 
-        # Original StainNet test code maps model output back to [0, 1].
         output = output * 0.5 + 0.5
         output = torch.clamp(output, 0.0, 1.0)
-
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8)
         return [output_np[i] for i in range(output_np.shape[0])]
+
+    def _log_run_summary(
+        self,
+        src_img_path: Path,
+        checkpoint_path: Path,
+        output_path: Path,
+        wsi_handle: WSIHandle,
+        total_refs: int,
+        total_batches: int,
+    ) -> None:
+        self._log("Run configuration:")
+        self._log(f"  input_path={src_img_path}")
+        self._log(f"  checkpoint_path={checkpoint_path}")
+        self._log(f"  output_path={output_path}")
+        self._log(f"  generator_key={self.config.generator_key}")
+        self._log(f"  read_level={self.config.read_level}")
+        self._log(f"  patch_size={self.config.patch_size}")
+        self._log(f"  stride={self.config.stride}")
+        self._log(f"  batch_size={self.config.batch_size}")
+        self._log(f"  tile_size={self.config.tile_size}")
+        self._log(f"  pyramid_levels={self.config.pyramid_levels}")
+        self._log(f"  device={self.device}")
+        self._log(f"  compute_ssim={self.config.compute_ssim}")
+        self._log(f"  level_dimensions={wsi_handle.level_dimensions}")
+        self._log(f"  total_patches={total_refs}")
+        self._log(f"  total_batches={total_batches}")
 
     def _select_device(self, device: str) -> torch.device:
         if device != "auto":
             resolved = torch.device(device)
             if resolved.type == "cuda" and (resolved.index is None or resolved.index == 0):
-                raise StainNetDeviceError(
-                    "이 프로젝트에서는 GPU 0을 사용할 수 없습니다. cuda:1, cuda:2 또는 cuda:3을 사용하세요."
+                raise ValueError(
+                    "GPU 0 is disabled for this project. Please use cuda:1, cuda:2, or cuda:3."
                 )
             return resolved
-
         if torch.cuda.is_available():
             for gpu_index in (1, 2, 3):
                 if torch.cuda.device_count() > gpu_index:
@@ -464,42 +419,12 @@ class StainNetPipeline(ModelPipeline):
                 message=message,
             )
 
-    # def _build_output_path(self, src_img_path: Path) -> Path:
-    #     self.config.output_dir.mkdir(parents=True, exist_ok=True)
-    #     stem = Path(src_img_path).stem
-    #     return self.config.output_dir / f"{stem}_stainnet.zarr"
-
-    def _log_run_summary(
-        self,
-        src_img_path: Path,
-        checkpoint_path: Path,
-        output_path: Path,
-        wsi_handle: WSIHandle,
-        total_refs: int,
-        total_batches: int,
-    ) -> None:
-        self._log("Run configuration:")
-        self._log(f"  input_path={src_img_path}")
-        self._log(f"  checkpoint_path={checkpoint_path}")
-        self._log(f"  output_path={output_path}")
-        self._log(f"  read_level={self.config.read_level}")
-        self._log(f"  patch_size={self.config.patch_size}")
-        self._log(f"  stride={self.config.stride}")
-        self._log(f"  batch_size={self.config.batch_size}")
-        self._log(f"  tile_size={self.config.tile_size}")
-        self._log(f"  device={self.device}")
-        self._log(f"  compute_ssim={self.config.compute_ssim}")
-        self._log(f"  level_dimensions={wsi_handle.level_dimensions}")
-        self._log(f"  total_patches={total_refs}")
-        self._log(f"  total_batches={total_batches}")
-
     def _log(self, message: str) -> None:
         if self.config.verbose:
-            print(f"[StainNetPipeline] {message}", flush=True)
+            print(f"[MultiStainCycleGANPipeline] {message}", flush=True)
         if self.logger is not None:
             self.logger.info(message)
 
 
-# Backward-compatible alias while the rest of the project catches up.
-StainNet = StainNetPipeline
-StainNetConfig = StainNetInferenceConfig
+MultiStainCycleGAN = MultiStainCycleGANPipeline
+MultiStainCycleGANConfig = MultiStainCycleGANInferenceConfig

@@ -80,14 +80,18 @@ class MacenkoNormalizer:
         source_rgb: np.ndarray | torch.Tensor,
         target_rgb: np.ndarray | torch.Tensor,
     ) -> None:
-        source_rgb = self._to_hwc_float_tensor(source_rgb)
-        target_rgb = self._to_hwc_float_tensor(target_rgb)
+        source_rgb = self._sample_fit_rgb(source_rgb)
+        target_rgb = self._sample_fit_rgb(target_rgb)
 
         self.source_stain_matrix = self._estimate_stain_matrix(source_rgb)
+        self.target_stain_matrix = self._estimate_stain_matrix(target_rgb)
+        if self.source_stain_matrix.shape[1] != self.target_stain_matrix.shape[1]:
+            self.source_stain_matrix = self._estimate_single_stain_matrix(source_rgb)
+            self.target_stain_matrix = self._estimate_single_stain_matrix(target_rgb)
+
         source_conc = self._estimate_concentrations(source_rgb, self.source_stain_matrix)
         self.source_max_conc = torch.quantile(source_conc, 0.95, dim=1)
 
-        self.target_stain_matrix = self._estimate_stain_matrix(target_rgb)
         target_conc = self._estimate_concentrations(target_rgb, self.target_stain_matrix)
         self.target_max_conc = torch.quantile(target_conc, 0.95, dim=1)
 
@@ -171,6 +175,65 @@ class MacenkoNormalizer:
 
         return tensor
 
+    def _to_hwc_cpu_float_tensor(self, rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
+        if isinstance(rgb, np.ndarray):
+            self._validate_rgb(rgb)
+            tensor = torch.from_numpy(np.ascontiguousarray(rgb))
+        elif isinstance(rgb, torch.Tensor):
+            tensor = rgb.detach().cpu()
+            if tensor.ndim not in {3, 4}:
+                raise PipelineInputShapeError(
+                    f"RGB 이미지 또는 batch가 필요합니다. 입력 tensor 차원: {tensor.ndim}D"
+                )
+            if tensor.shape[-1] != 3:
+                raise PipelineInputShapeError(
+                    f"RGB 데이터는 channels-last shape이어야 합니다. 입력 shape: {tuple(tensor.shape)}"
+                )
+        else:
+            raise PipelineInputShapeError(
+                f"rgb는 numpy.ndarray 또는 torch.Tensor 타입이어야 합니다. 입력 타입: {type(rgb).__name__}"
+            )
+
+        tensor = tensor.to(device="cpu", dtype=torch.float32)
+        if float(tensor.max().item()) <= 1.0:
+            tensor = tensor * 255.0
+
+        return tensor
+
+    def _sample_fit_rgb(self, rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
+        rgb = self._to_hwc_cpu_float_tensor(rgb).reshape(-1, 3)
+        rgb = rgb.to(dtype=torch.float32)
+
+        rgb_clamped = rgb.clamp(1, self.Io)
+        od = -torch.log((rgb_clamped + self.eps) / self.Io)
+        od_norm = torch.linalg.vector_norm(od, dim=1)
+
+        rgb_unit = rgb / 255.0
+        channel_max = torch.amax(rgb_unit, dim=1)
+        channel_min = torch.amin(rgb_unit, dim=1)
+        saturation = (channel_max - channel_min) / (channel_max + self.eps)
+
+        valid = (
+            (od_norm > self.beta)
+            & (channel_max < 0.98)
+            & (saturation > 0.02)
+        )
+        sampled = rgb[valid]
+
+        if len(sampled) == 0:
+            sampled = rgb[od_norm > self.beta]
+
+        if len(sampled) == 0:
+            raise NoTissuePixelsError("유효한 조직 픽셀을 찾지 못했습니다. beta 값을 낮춰보세요.")
+
+        if len(sampled) > self.max_fit_pixels:
+            rng = np.random.default_rng(self.random_seed)
+            indices = rng.choice(len(sampled), size=self.max_fit_pixels, replace=False)
+            indices = torch.as_tensor(indices, dtype=torch.long)
+            sampled = sampled[indices]
+
+        return sampled.reshape(-1, 1, 3).to(device=self.device, dtype=torch.float32)
+
     def _rgb_to_od(self, rgb: torch.Tensor) -> torch.Tensor:
         rgb = rgb.to(device=self.device, dtype=torch.float32)
         rgb = rgb.clamp(1, self.Io)
@@ -198,14 +261,17 @@ class MacenkoNormalizer:
 
         stain_matrix = self._normalize_stain_matrix(stain_matrix)
         if not self._is_stable_stain_matrix(stain_matrix):
-            default = torch.as_tensor(
-                self.DEFAULT_STAIN_MATRIX,
-                device=self.device,
-                dtype=torch.float32,
-            )
-            return self._normalize_stain_matrix(default)
+            return self._single_stain_from_od(od)
 
         return stain_matrix
+
+    def _estimate_single_stain_matrix(self, rgb: torch.Tensor) -> torch.Tensor:
+        return self._single_stain_from_od(self._prepare_od(rgb))
+
+    def _single_stain_from_od(self, od: torch.Tensor) -> torch.Tensor:
+        _, _, vh = torch.linalg.svd(od, full_matrices=False)
+        stain_matrix = vh[:1].T
+        return self._normalize_stain_matrix(stain_matrix)
 
     def _prepare_od(self, rgb: torch.Tensor) -> torch.Tensor:
         flat_rgb = self._to_hwc_float_tensor(rgb).reshape(-1, 3)
@@ -267,6 +333,17 @@ class MacenkoNormalizer:
     ) -> torch.Tensor:
         od = self._rgb_to_od(rgb).reshape(-1, 3).T
 
+        if stain_matrix.shape[1] == 1:
+            denominator = torch.sum(stain_matrix[:, 0] * stain_matrix[:, 0])
+            concentrations = (stain_matrix.T @ od) / (denominator + self.eps)
+            return concentrations.clamp_min(0)
+
+        if stain_matrix.shape[1] != 2:
+            raise MacenkoError(
+                f"Macenko stain matrix는 1개 또는 2개 stain vector만 지원합니다. "
+                f"입력 shape: {tuple(stain_matrix.shape)}"
+            )
+
         gram = stain_matrix.T @ stain_matrix
         det = gram[0, 0] * gram[1, 1] - gram[0, 1] * gram[1, 0]
         det = torch.clamp(det, min=self.eps)
@@ -287,6 +364,7 @@ class Macenko(ModelPipeline):
         batch_size: int = 64,
         patch_size: int = 256,
         max_sample_patches: int = 64,
+        max_target_sample_patches: int = 512,
         max_iteration: int = 128,
         device: str | torch.device | None = None,
     ):
@@ -294,6 +372,7 @@ class Macenko(ModelPipeline):
         self.batch_size = int(batch_size)
         self.patch_size = int(patch_size)
         self.max_sample_patches = int(max_sample_patches)
+        self.max_target_sample_patches = int(max_target_sample_patches)
         self.max_iteration = int(max_iteration)
         self.device = self._select_device(device)
         self._validate_config()
@@ -317,9 +396,22 @@ class Macenko(ModelPipeline):
         self._log_wsi_info("source", src_wsi_handle)
         self._log_wsi_info("target", target_wsi_handle)
 
+        level = self._select_read_level(src_wsi_handle)
+        source_fit_level, target_fit_level = self._select_fit_read_levels(
+            source_wsi_handle=src_wsi_handle,
+            target_wsi_handle=target_wsi_handle,
+            source_level=level,
+        )
         macenko = MacenkoNormalizer(device=self.device)
         fit_patch_sampler = PatchSampler(
             patch_size=self.patch_size,
+            read_level=source_fit_level,
+            training_tissue_threshold=0.3,
+            strict_mpp_check=False,
+        )
+        target_fit_patch_sampler = PatchSampler(
+            patch_size=self.patch_size,
+            read_level=target_fit_level,
             training_tissue_threshold=0.3,
             strict_mpp_check=False,
         )
@@ -330,20 +422,20 @@ class Macenko(ModelPipeline):
             label="source",
         )
         target_patches = self._sample_patch_images(
-            patch_sampler=fit_patch_sampler,
+            patch_sampler=target_fit_patch_sampler,
             wsi_handle=target_wsi_handle,
             label="target",
+            max_patches=self.max_target_sample_patches,
         )
 
         metric = self._build_metric(metrics, target_patches)
 
         self.logger.info("Fit Macenko normalizer")
         macenko.fit(
-            self._to_hwc_float_tensor(source_patches),
-            self._to_hwc_float_tensor(target_patches),
+            self._to_hwc_batch(source_patches),
+            self._to_hwc_batch(target_patches),
         )
 
-        level = self._select_read_level(src_wsi_handle)
         self.logger.info(
             "Grid Sample from Source Image: "
             f"patch_size={self.patch_size}, read_level={level}, "
@@ -392,6 +484,11 @@ class Macenko(ModelPipeline):
             raise ValueError(
                 f"max_sample_patches는 0보다 커야 합니다. 입력값: {self.max_sample_patches}"
             )
+        if self.max_target_sample_patches <= 0:
+            raise ValueError(
+                "max_target_sample_patches는 0보다 커야 합니다. "
+                f"입력값: {self.max_target_sample_patches}"
+            )
         if self.max_iteration <= 0:
             raise ValueError(f"max_iteration은 0보다 커야 합니다. 입력값: {self.max_iteration}")
 
@@ -412,17 +509,88 @@ class Macenko(ModelPipeline):
         self.logger.info(f"Level: 0 - {wsi_handle.max_level}")
         self.logger.info(f"Mpp: {wsi_handle.mpp}")
 
+    def _select_fit_read_levels(
+        self,
+        source_wsi_handle,
+        target_wsi_handle,
+        source_level: int,
+    ) -> tuple[int, int]:
+        target_level, reason = self._select_matching_target_read_level(
+            source_wsi_handle=source_wsi_handle,
+            target_wsi_handle=target_wsi_handle,
+            source_level=source_level,
+        )
+        self.logger.info(
+            "Use fit read levels by %s: source=%d(dim=%s, downsample=%s), "
+            "target=%d(dim=%s, downsample=%s)",
+            reason,
+            source_level,
+            source_wsi_handle.level_dimensions[source_level],
+            source_wsi_handle.level_downsamples[source_level],
+            target_level,
+            target_wsi_handle.level_dimensions[target_level],
+            target_wsi_handle.level_downsamples[target_level],
+        )
+
+        return source_level, target_level
+
+    def _select_matching_target_read_level(
+        self,
+        source_wsi_handle,
+        target_wsi_handle,
+        source_level: int,
+    ) -> tuple[int, str]:
+        candidate_levels = [
+            level
+            for level, (width, height) in enumerate(target_wsi_handle.level_dimensions)
+            if width >= self.patch_size and height >= self.patch_size
+        ]
+        if not candidate_levels:
+            candidate_levels = [0]
+
+        if self._has_valid_mpp(source_wsi_handle) and self._has_valid_mpp(target_wsi_handle):
+            source_mpp = self._effective_mpp(source_wsi_handle, source_level)
+            target_level = min(
+                candidate_levels,
+                key=lambda level: abs(
+                    math.log(self._effective_mpp(target_wsi_handle, level) / source_mpp)
+                ),
+            )
+            return target_level, "mpp"
+
+        source_longest_side = max(source_wsi_handle.level_dimensions[source_level])
+        target_level = min(
+            candidate_levels,
+            key=lambda level: abs(
+                math.log(
+                    max(target_wsi_handle.level_dimensions[level])
+                    / source_longest_side
+                )
+            ),
+        )
+        return target_level, "image-size"
+
+    def _has_valid_mpp(self, wsi_handle) -> bool:
+        mpp_x, mpp_y = wsi_handle.mpp
+        return mpp_x > 0 and mpp_y > 0
+
+    def _effective_mpp(self, wsi_handle, level: int) -> float:
+        mpp_x, mpp_y = wsi_handle.mpp
+        base_mpp = (float(mpp_x) + float(mpp_y)) / 2.0
+        return base_mpp * float(wsi_handle.level_downsamples[level])
+
     def _sample_patch_images(
         self,
         patch_sampler: PatchSampler,
         wsi_handle,
         label: str,
+        max_patches: int | None = None,
     ) -> np.ndarray:
         self.logger.info(f"Sample {label} image")
         refs = patch_sampler.sample(
             wsi_handle,
             mode="training",
-            max_patches=self.max_sample_patches,
+            max_patches=max_patches or self.max_sample_patches,
             save_debug=False,
         )
         images = np.stack([load_patch(ref).img for ref in refs], axis=0)
@@ -509,14 +677,14 @@ class Macenko(ModelPipeline):
             timer['transform'] += time.time() - t0
 
             t0 = time.time()
-            metric.evaluate_torch(patch_tensor, new_patch_tensor)
-            timer['metric'] += time.time() - t0
-
-            t0 = time.time()
             new_patches = new_patch_tensor.detach().cpu().numpy()
             for i, ref in enumerate(batch_ref):
                 writer.write_patch(ref, new_patches[i])
             timer['writer'] += time.time() - t0
+
+            t0 = time.time()
+            metric.evaluate_torch(patch_tensor, new_patch_tensor)
+            timer['metric'] += time.time() - t0
 
             if emit_event:
                 emit_event(

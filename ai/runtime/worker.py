@@ -5,8 +5,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ai.metrics.metric import Metric
 from ai.pipelines.base import ModelPipeline
 from ai.runtime.task import Metrics, Task, TaskResult
+from ai.samplers.evaluation_sampler import EvaluationSampler, EvaluationSamples
 
 
 class WorkerError(RuntimeError):
@@ -38,24 +40,31 @@ class Worker:
     """Simple runtime coordinator for one normalization task."""
 
     def run(self, task: Task, emit_event) -> TaskResult:
+        evaluation_samples = self._sample_for_evaluation(task, emit_event)
+
         emit_event(status="running", progress=1, message="Loading pipeline.")
         pipeline = self._create_pipeline(task.model_id)
         pipeline_result = pipeline.run(
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            ["ssim", "psnr", "fid", "gaussian_color_dist"],
+            ["ssim", "psnr"],
             emit_event=emit_event
+        )
+        sampled_scores = self._evaluate_sampled_metrics(
+            evaluation_samples=evaluation_samples,
+            output_path=pipeline_result.output_path,
+            emit_event=emit_event,
         )
         metrics = Metrics(
             ssim=self._score_or_zero(pipeline_result.scores.get("ssim")),
             psnr=self._score_or_zero(pipeline_result.scores.get("psnr")),
-            fid=self._score_or_zero(pipeline_result.scores.get("fid")),
+            fid=self._score_or_zero(sampled_scores.get("fid")),
             gaussian_color_dist=self._score_or_zero(
-                pipeline_result.scores.get("gaussian_color_dist")
+                sampled_scores.get("gaussian_color_dist")
             ),
             gaussian_color_gain=self._score_or_zero(
-                pipeline_result.scores.get("gaussian_color_gain")
+                sampled_scores.get("gaussian_color_gain")
             ),
         )
 
@@ -64,6 +73,52 @@ class Worker:
             metrics=metrics,
             thumbnail_path=pipeline_result.thumbnail_path,
         )
+
+    def _sample_for_evaluation(
+        self,
+        task: Task,
+        emit_event,
+    ) -> EvaluationSamples | None:
+        if task.target_img_path is None:
+            return None
+
+        emit_event(
+            status="running",
+            progress=1,
+            message="Sampling fixed evaluation patches.",
+        )
+        sampler = EvaluationSampler()
+        return sampler.sample(task.src_img_path, task.target_img_path)
+
+    def _evaluate_sampled_metrics(
+        self,
+        evaluation_samples: EvaluationSamples | None,
+        output_path: Path,
+        emit_event,
+    ) -> dict[str, float | None]:
+        if evaluation_samples is None:
+            return {
+                "fid": None,
+                "gaussian_color_dist": None,
+                "gaussian_color_gain": None,
+            }
+
+        emit_event(
+            status="running",
+            progress=100,
+            message="Evaluating sampled color metrics.",
+        )
+        sampler = EvaluationSampler()
+        output_patches = sampler.load_output_patches(evaluation_samples, output_path)
+        metric = Metric(
+            use_ssim=False,
+            use_psnr=False,
+            use_fid=True,
+            use_gaussian_color_dist=True,
+            target_patch=evaluation_samples.target_patches,
+        )
+        metric.evaluate(evaluation_samples.source_patches, output_patches)
+        return metric.finalize()
 
     def _create_pipeline(self, model_id: int) -> ModelPipeline:
         pipeline_path = PIPELINE_MAP.get(model_id)

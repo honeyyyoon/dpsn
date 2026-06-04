@@ -71,7 +71,7 @@ def _validate_input_globals() -> None:
         ("OUTPUT_FILE_PATH", OUTPUT_FILE_PATH),
     ):
         if not isinstance(path, Path):
-            raise TypeError(f"{name} must be a pathlib.Path, got {type(path).__name__}")
+            raise TypeError(f"{name}은 pathlib.Path 타입이어야 합니다. 입력 타입: {type(path).__name__}")
 
 
 def inspect_wsi(path: Path) -> WSIReport:
@@ -184,7 +184,7 @@ def prepare_preview_array(array: np.ndarray, max_size: int) -> np.ndarray:
         array = np.transpose(array, (1, 2, 0))
 
     if array.ndim != 3:
-        raise ValueError(f"Cannot prepare preview from array with shape {array.shape}")
+        raise ValueError(f"shape {array.shape} 배열로 preview를 생성할 수 없습니다.")
 
     if array.shape[-1] == 4:
         array = array[..., :3]

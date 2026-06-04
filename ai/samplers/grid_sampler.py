@@ -1,9 +1,15 @@
 from __future__ import annotations
-import math
-import logging
 
 from ai.wsi.handle import WSIHandle
 from ai.wsi.patch_ref import PatchRef
+
+
+class GridSamplerError(RuntimeError):
+    """Base class for grid sampler errors."""
+
+
+class InvalidReadLevelError(GridSamplerError):
+    """Raised when the configured read level is not available in the WSI."""
 
 
 class GridSampler:
@@ -22,11 +28,11 @@ class GridSampler:
         read_level: int = 0,
     ) -> None:
         if patch_size <= 0:
-            raise ValueError(f"patch_size must be > 0, got {patch_size}")
+            raise ValueError(f"patch_size는 0보다 커야 합니다. 입력값: {patch_size}")
         if stride is not None and stride <= 0:
-            raise ValueError(f"stride must be > 0, got {stride}")
+            raise ValueError(f"stride는 0보다 커야 합니다. 입력값: {stride}")
         if read_level < 0:
-            raise ValueError(f"read_level must be >= 0, got {read_level}")
+            raise ValueError(f"read_level은 0 이상이어야 합니다. 입력값: {read_level}")
 
         self.patch_size = patch_size
         self.stride = stride
@@ -38,8 +44,8 @@ class GridSampler:
     ) -> list[PatchRef]:
         level_count = len(wsi_handle.level_dimensions)
         if not (0 <= self.read_level < level_count):
-            raise ValueError(
-                f"read_level {self.read_level} must be within [0, {level_count - 1}]"
+            raise InvalidReadLevelError(
+                f"read_level {self.read_level}은 0 이상 {level_count - 1} 이하이어야 합니다."
             )
 
         read_w, read_h = wsi_handle.level_dimensions[self.read_level]
@@ -47,8 +53,6 @@ class GridSampler:
         patch_h = min(self.patch_size, read_h)
         stride = self.patch_size if self.stride is None else self.stride
         level = self.read_level
-
-        size = wsi_handle.level_dimensions[level]
 
         xs = self._grid_positions(read_w, patch_w, stride)
         ys = self._grid_positions(read_h, patch_h, stride)

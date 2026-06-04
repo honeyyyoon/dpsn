@@ -20,6 +20,43 @@ from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
 from ai.wsi.writer import MultiZarrWSIWriter
 
+
+class StainNetError(RuntimeError):
+    """Base class for StainNet pipeline errors."""
+
+
+class MissingTargetImageError(StainNetError):
+    """Raised when target-dependent metrics are requested without a target image."""
+
+
+class StainNetReadLevelError(StainNetError):
+    """Raised when the configured read level is not available in the WSI."""
+
+
+class StainNetCheckpointError(StainNetError):
+    """Base class for StainNet checkpoint errors."""
+
+
+class StainNetCheckpointNotFoundError(StainNetCheckpointError):
+    """Raised when a required StainNet checkpoint cannot be found."""
+
+
+class StainNetCheckpointLoadError(StainNetCheckpointError):
+    """Raised when a StainNet checkpoint cannot be loaded safely."""
+
+
+class StainNetCheckpointSelectionError(StainNetCheckpointError):
+    """Raised when checkpoint discovery finds ambiguous candidates."""
+
+
+class StainNetInvalidCheckpointError(StainNetCheckpointError):
+    """Raised when a StainNet checkpoint does not contain usable model weights."""
+
+
+class StainNetDeviceError(StainNetError):
+    """Raised when the requested device is not allowed for StainNet inference."""
+
+
 # class that stores all settings needed for StainNet WSI inference
 @dataclass(slots=True)
 class StainNetInferenceConfig:
@@ -84,7 +121,7 @@ class StainNetPipeline(ModelPipeline):
         tgt_imgs = None
         if "fid" in metrics:
             if target_img_path is None:
-                raise ValueError("FID needs target image")
+                raise MissingTargetImageError("FID를 계산하려면 타겟 이미지가 필요합니다.")
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
             tgt_wsi_handle = open_wsi_handle(target_img_path)
             tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
@@ -97,8 +134,8 @@ class StainNetPipeline(ModelPipeline):
         src_wsi_handle = open_wsi_handle(src_img_path)
         level_count = len(src_wsi_handle.level_dimensions)
         if not (0 <= self.config.read_level < level_count):
-            raise ValueError(
-                f"read_level {self.config.read_level} must be within [0, {level_count - 1}]"
+            raise StainNetReadLevelError(
+                f"read_level {self.config.read_level}은 0 이상 {level_count - 1} 이하이어야 합니다."
             )
 
         read_w, read_h = src_wsi_handle.level_dimensions[self.config.read_level]
@@ -209,15 +246,15 @@ class StainNetPipeline(ModelPipeline):
 
     def _validate_config(self) -> None:
         if self.config.patch_size <= 0:
-            raise ValueError("patch_size must be > 0")
+            raise ValueError("patch_size는 0보다 커야 합니다.")
         if self.config.stride <= 0:
-            raise ValueError("stride must be > 0")
+            raise ValueError("stride는 0보다 커야 합니다.")
         if self.config.read_level < 0:
-            raise ValueError("read_level must be >= 0")
+            raise ValueError("read_level은 0 이상이어야 합니다.")
         if self.config.batch_size <= 0:
-            raise ValueError("batch_size must be > 0")
+            raise ValueError("batch_size는 0보다 커야 합니다.")
         if self.config.tile_size <= 0:
-            raise ValueError("tile_size must be > 0")
+            raise ValueError("tile_size는 0보다 커야 합니다.")
 
     def _load_model(self) -> StainNetModel:
         model = StainNetModel(
@@ -232,7 +269,12 @@ class StainNetPipeline(ModelPipeline):
         checkpoint = self._load_checkpoint(checkpoint_path)
         state_dict = self._extract_state_dict(checkpoint)
         state_dict = self._strip_module_prefix(state_dict)
-        model.load_state_dict(state_dict)
+        try:
+            model.load_state_dict(state_dict)
+        except RuntimeError as error:
+            raise StainNetInvalidCheckpointError(
+                f"StainNet state_dict를 불러오지 못했습니다: {error}"
+            ) from error
         return model
 
     def _load_checkpoint(self, checkpoint_path: Path) -> Any:
@@ -253,24 +295,30 @@ class StainNetPipeline(ModelPipeline):
                     map_location=self.device,
                     weights_only=True,
                 )
-            except pickle.UnpicklingError:
-                raise ValueError(
-                    "Failed to load the StainNet checkpoint in weights-only mode. "
-                    "If this checkpoint was produced outside this project, inspect "
-                    "its contents before relaxing the loader further."
-                ) from exc
+            except Exception as error:
+                raise StainNetCheckpointLoadError(
+                    "StainNet checkpoint를 weights-only 모드로 불러오지 못했습니다. "
+                    "이 프로젝트 외부에서 생성된 checkpoint라면 loader 제한을 완화하기 전에 "
+                    "파일 내용을 먼저 확인하세요."
+                ) from error
+        except Exception as error:
+            raise StainNetCheckpointLoadError(
+                f"StainNet checkpoint를 불러오지 못했습니다: {checkpoint_path}. {error}"
+            ) from error
 
     def _resolve_checkpoint_path(self) -> Path:
         if self.config.checkpoint_path is not None:
             checkpoint_path = Path(self.config.checkpoint_path)
             if not checkpoint_path.is_file():
-                raise FileNotFoundError(f"StainNet checkpoint not found: {checkpoint_path}")
+                raise StainNetCheckpointNotFoundError(
+                    f"StainNet checkpoint를 찾을 수 없습니다: {checkpoint_path}"
+                )
             return checkpoint_path
 
         checkpoint_dir = Path(self.config.checkpoint_dir)
         if not checkpoint_dir.is_dir():
-            raise FileNotFoundError(
-                f"StainNet checkpoint directory not found: {checkpoint_dir}"
+            raise StainNetCheckpointNotFoundError(
+                f"StainNet checkpoint 디렉터리를 찾을 수 없습니다: {checkpoint_dir}"
             )
 
         latest_candidates = sorted(
@@ -283,9 +331,9 @@ class StainNetPipeline(ModelPipeline):
             return latest_candidates[0]
         if len(latest_candidates) > 1:
             names = ", ".join(str(path) for path in latest_candidates)
-            raise ValueError(
-                "Multiple StainNet latest checkpoint files found. "
-                f"Pass checkpoint_path explicitly: {names}"
+            raise StainNetCheckpointSelectionError(
+                "StainNet latest checkpoint 파일이 여러 개 발견되었습니다. "
+                f"checkpoint_path를 명시적으로 지정하세요: {names}"
             )
 
         candidates = sorted(
@@ -296,13 +344,13 @@ class StainNetPipeline(ModelPipeline):
         )
 
         if not candidates:
-            raise FileNotFoundError(
-                f"No StainNet checkpoint found in: {checkpoint_dir}"
+            raise StainNetCheckpointNotFoundError(
+                f"StainNet checkpoint를 찾을 수 없습니다: {checkpoint_dir}"
             )
         if len(candidates) > 1:
             names = ", ".join(str(path) for path in candidates)
-            raise ValueError(
-                "Multiple checkpoint files found. Pass checkpoint_path explicitly: "
+            raise StainNetCheckpointSelectionError(
+                "checkpoint 파일이 여러 개 발견되었습니다. checkpoint_path를 명시적으로 지정하세요: "
                 f"{names}"
             )
         return candidates[0]
@@ -317,7 +365,7 @@ class StainNetPipeline(ModelPipeline):
             if all(isinstance(key, str) for key in checkpoint.keys()):
                 return checkpoint
 
-        raise ValueError("Checkpoint does not contain a valid state_dict.")
+        raise StainNetInvalidCheckpointError("checkpoint에 유효한 state_dict가 없습니다.")
 
     def _strip_module_prefix(
         self,
@@ -357,8 +405,8 @@ class StainNetPipeline(ModelPipeline):
         if device != "auto":
             resolved = torch.device(device)
             if resolved.type == "cuda" and (resolved.index is None or resolved.index == 0):
-                raise ValueError(
-                    "GPU 0 is disabled for this project. Please use cuda:1, cuda:2, or cuda:3."
+                raise StainNetDeviceError(
+                    "이 프로젝트에서는 GPU 0을 사용할 수 없습니다. cuda:1, cuda:2 또는 cuda:3을 사용하세요."
                 )
             return resolved
 

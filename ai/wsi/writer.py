@@ -39,14 +39,14 @@ class ZarrWSIWriter(PatchWriter):
         overwrite: bool = True,
     ) -> None:
         if width <= 0 or height <= 0:
-            raise ValueError(f"width and height must be > 0, got {(width, height)}")
+            raise ValueError(f"width와 height는 0보다 커야 합니다. 입력값: {(width, height)}")
         if channels <= 0:
-            raise ValueError(f"channels must be > 0, got {channels}")
+            raise ValueError(f"channels는 0보다 커야 합니다. 입력값: {channels}")
         if tile_size <= 0:
-            raise ValueError(f"tile_size must be > 0, got {tile_size}")
+            raise ValueError(f"tile_size는 0보다 커야 합니다. 입력값: {tile_size}")
         if level_downsample <= 0:
             raise ValueError(
-                f"level_downsample must be > 0, got {level_downsample}"
+                f"level_downsample은 0보다 커야 합니다. 입력값: {level_downsample}"
             )
         self.temp_id = str(uuid.uuid4())
 
@@ -69,7 +69,7 @@ class ZarrWSIWriter(PatchWriter):
         x1 = int(round(ref.x / self.level_downsample))
         y1 = int(round(ref.y / self.level_downsample))
         if x1 < 0 or y1 < 0:
-            raise ValueError(f"Negative write position: {(x1, y1)}")
+            raise ValueError(f"write 위치는 음수일 수 없습니다: {(x1, y1)}")
 
         img_hwc = self._to_hwc_uint8(img)
         patch_h, patch_w = img_hwc.shape[:2]
@@ -91,7 +91,7 @@ class ZarrWSIWriter(PatchWriter):
     
     def _write_thumbnail(self) -> Path:
         if self.thumbnail_path is None:
-            raise ValueError("thumbnail_path is not set.")
+            raise ValueError("thumbnail_path가 설정되지 않았습니다.")
 
         self.thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -110,15 +110,15 @@ class ZarrWSIWriter(PatchWriter):
 
     def _to_hwc_uint8(self, img: np.ndarray) -> np.ndarray:
         if not isinstance(img, np.ndarray):
-            raise TypeError(f"img must be a numpy.ndarray, got {type(img).__name__}")
+            raise TypeError(f"img는 numpy.ndarray 타입이어야 합니다. 입력 타입: {type(img).__name__}")
         if img.ndim != 3:
-            raise ValueError(f"img must have shape [C, H, W], got {img.shape}")
+            raise ValueError(f"img는 [C, H, W] shape이어야 합니다. 입력 shape: {img.shape}")
         if img.shape[0] != self.channels:
             raise ValueError(
-                f"img must have {self.channels} channels in CHW format, got {img.shape}"
+                f"img는 CHW 형식의 {self.channels}채널이어야 합니다. 입력 shape: {img.shape}"
             )
         if img.dtype != np.uint8:
-            raise ValueError(f"img must be uint8, got {img.dtype}")
+            raise ValueError(f"img dtype은 uint8이어야 합니다. 입력 dtype: {img.dtype}")
 
         return np.transpose(img, (1, 2, 0))
 
@@ -135,7 +135,7 @@ class ZarrWSIWriter(PatchWriter):
         if hasattr(root, "create_dataset"):
             return root.create_dataset(**kwargs)
         raise AttributeError(
-            "Zarr group does not support create_array or create_dataset."
+            "Zarr group이 create_array 또는 create_dataset을 지원하지 않습니다."
         )
 
 class MultiZarrWSIWriter(PatchWriter):
@@ -160,21 +160,21 @@ class MultiZarrWSIWriter(PatchWriter):
         write_levels: tuple[int, ...] = (0,),
     ) -> None:
         if width <= 0 or height <= 0:
-            raise ValueError(f"width and height must be > 0, got {(width, height)}")
+            raise ValueError(f"width와 height는 0보다 커야 합니다. 입력값: {(width, height)}")
         if channels <= 0:
-            raise ValueError(f"channels must be > 0, got {channels}")
+            raise ValueError(f"channels는 0보다 커야 합니다. 입력값: {channels}")
         if tile_size <= 0:
-            raise ValueError(f"tile_size must be > 0, got {tile_size}")
+            raise ValueError(f"tile_size는 0보다 커야 합니다. 입력값: {tile_size}")
         if level_downsample <= 0:
             raise ValueError(
-                f"level_downsample must be > 0, got {level_downsample}"
+                f"level_downsample은 0보다 커야 합니다. 입력값: {level_downsample}"
             )
         if pyramid_levels < 0:
-            raise ValueError(f"pyramid_levels must be >= 0, got {pyramid_levels}")
+            raise ValueError(f"pyramid_levels는 0 이상이어야 합니다. 입력값: {pyramid_levels}")
         if not write_levels:
-            raise ValueError("write_levels must contain at least one level")
+            raise ValueError("write_levels에는 최소 하나 이상의 level이 필요합니다.")
         if any(level < 0 for level in write_levels):
-            raise ValueError(f"write_levels must be >= 0, got {write_levels}")
+            raise ValueError(f"write_levels는 모두 0 이상이어야 합니다. 입력값: {write_levels}")
 
         self.temp_id = str(uuid.uuid4())
 
@@ -204,7 +204,7 @@ class MultiZarrWSIWriter(PatchWriter):
         x1 = int(round(ref.x / self.level_downsample))
         y1 = int(round(ref.y / self.level_downsample))
         if x1 < 0 or y1 < 0:
-            raise ValueError(f"Negative write position: {(x1, y1)}")
+            raise ValueError(f"write 위치는 음수일 수 없습니다: {(x1, y1)}")
 
         img_hwc = self._to_hwc_uint8(img)
         patch_h, patch_w = img_hwc.shape[:2]
@@ -277,15 +277,15 @@ class MultiZarrWSIWriter(PatchWriter):
 
     def _to_hwc_uint8(self, img: np.ndarray) -> np.ndarray:
         if not isinstance(img, np.ndarray):
-            raise TypeError(f"img must be a numpy.ndarray, got {type(img).__name__}")
+            raise TypeError(f"img는 numpy.ndarray 타입이어야 합니다. 입력 타입: {type(img).__name__}")
         if img.ndim != 3:
-            raise ValueError(f"img must have shape [C, H, W], got {img.shape}")
+            raise ValueError(f"img는 [C, H, W] shape이어야 합니다. 입력 shape: {img.shape}")
         if img.shape[0] != self.channels:
             raise ValueError(
-                f"img must have {self.channels} channels in CHW format, got {img.shape}"
+                f"img는 CHW 형식의 {self.channels}채널이어야 합니다. 입력 shape: {img.shape}"
             )
         if img.dtype != np.uint8:
-            raise ValueError(f"img must be uint8, got {img.dtype}")
+            raise ValueError(f"img dtype은 uint8이어야 합니다. 입력 dtype: {img.dtype}")
 
         return np.transpose(img, (1, 2, 0))
 
@@ -302,5 +302,5 @@ class MultiZarrWSIWriter(PatchWriter):
         if hasattr(root, "create_dataset"):
             return root.create_dataset(**kwargs)
         raise AttributeError(
-            "Zarr group does not support create_array or create_dataset."
+            "Zarr group이 create_array 또는 create_dataset을 지원하지 않습니다."
         )

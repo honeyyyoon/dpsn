@@ -37,21 +37,21 @@ class PatchRef:
     # Runs right after init to reject invalid patch references
     def __post_init__(self) -> None:
         if not isinstance(self.image_path, Path):
-            raise TypeError(f"image_path must be a Path, got {type(self.image_path).__name__}")
+            raise TypeError(f"image_path는 Path 타입이어야 합니다. 입력 타입: {type(self.image_path).__name__}")
         
         #Handling negative values of coordinates or level
         if self.x < 0: 
-            raise ValueError(f"x must be >= 0, got {self.x}")
+            raise ValueError(f"x는 0 이상이어야 합니다. 입력값: {self.x}")
         if self.y < 0:
-            raise ValueError(f"y must be >= 0, got {self.y}")
+            raise ValueError(f"y는 0 이상이어야 합니다. 입력값: {self.y}")
         if self.width <= 0:
-            raise ValueError(f"width must be > 0, got {self.width}")
+            raise ValueError(f"width는 0보다 커야 합니다. 입력값: {self.width}")
         if self.height <= 0:
-            raise ValueError(f"height must be > 0, got {self.height}")
+            raise ValueError(f"height는 0보다 커야 합니다. 입력값: {self.height}")
         if self.read_level < 0:
-            raise ValueError(f"read_level must be >= 0, got {self.read_level}")
+            raise ValueError(f"read_level은 0 이상이어야 합니다. 입력값: {self.read_level}")
         if self.downsample <= 0:
-            raise ValueError(f"downsample must be > 0, got {self.downsample}")
+            raise ValueError(f"downsample은 0보다 커야 합니다. 입력값: {self.downsample}")
         
     # Formatting eg. ref.x -> x, or ref.height -> height
     @property

@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import openslide
 
-from ai.wsi.handle import WSIHandle
+from ai.wsi.handle import UnsupportedWSIFormatError, WSIHandle
 from ai.wsi.loaders.base import Loader
 from ai.wsi.patch import Patch
 from ai.wsi.patch_ref import PatchRef
@@ -39,7 +39,9 @@ class OpenSlideLoader(Loader):
                     level_downsamples = level_downsamples,
                 )
         else:
-            raise ValueError(f"OpenSlide does not support file format: {img_path}")
+            raise UnsupportedWSIFormatError(
+                f"OpenSlide가 지원하지 않는 파일 형식입니다: {img_path}"
+            )
     
     @staticmethod
     def load_patch(patch_ref: PatchRef) -> Patch:

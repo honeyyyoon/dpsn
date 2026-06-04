@@ -8,12 +8,32 @@ import numpy as np
 import torch
 
 from ai.metrics.metric import Metric
-from ai.pipelines.base import ModelPipeline
+from ai.pipelines.base import ModelPipeline, PipelineInputShapeError
 from ai.pipelines.result import PipelineResult
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.loader import open_wsi_handle, load_patch
 from ai.wsi.writer import MultiZarrWSIWriter
+
+
+class MacenkoError(RuntimeError):
+    """Base class for Macenko pipeline errors."""
+
+
+class MacenkoNotFittedError(MacenkoError):
+    """Raised when Macenko normalization is used before fit."""
+
+
+class MissingTargetImageError(MacenkoError):
+    """Raised when Macenko normalization is run without a target image."""
+
+
+class MacenkoImageTooLargeError(MacenkoError):
+    """Raised when the selected WSI would exceed the configured iteration limit."""
+
+
+class NoTissuePixelsError(MacenkoError):
+    """Raised when stain fitting cannot find valid tissue pixels."""
 
 
 class MacenkoNormalizer:
@@ -82,7 +102,9 @@ class MacenkoNormalizer:
             or self.target_stain_matrix is None
             or self.target_max_conc is None
         ):
-            raise RuntimeError("Call fit(source_patches, target_patches) before normalize().")
+            raise MacenkoNotFittedError(
+                "normalize()를 호출하기 전에 fit(source_patches, target_patches)를 먼저 호출해야 합니다."
+            )
 
         source_rgb = self._to_hwc_float_tensor(source_rgb)
         original_shape = source_rgb.shape
@@ -116,9 +138,13 @@ class MacenkoNormalizer:
 
     def _validate_rgb(self, rgb: np.ndarray) -> None:
         if rgb.ndim not in {3, 4}:
-            raise ValueError(f"Expected RGB image or batch, got {rgb.ndim}D array")
+            raise PipelineInputShapeError(
+                f"RGB 이미지 또는 batch가 필요합니다. 입력 배열 차원: {rgb.ndim}D"
+            )
         if rgb.shape[-1] != 3:
-            raise ValueError(f"Expected RGB data with channels-last shape, got {rgb.shape}")
+            raise PipelineInputShapeError(
+                f"RGB 데이터는 channels-last shape이어야 합니다. 입력 shape: {rgb.shape}"
+            )
 
     def _to_hwc_float_tensor(self, rgb: np.ndarray | torch.Tensor) -> torch.Tensor:
         if isinstance(rgb, np.ndarray):
@@ -127,11 +153,17 @@ class MacenkoNormalizer:
         elif isinstance(rgb, torch.Tensor):
             tensor = rgb
             if tensor.ndim not in {3, 4}:
-                raise ValueError(f"Expected RGB image or batch, got {tensor.ndim}D tensor")
+                raise PipelineInputShapeError(
+                    f"RGB 이미지 또는 batch가 필요합니다. 입력 tensor 차원: {tensor.ndim}D"
+                )
             if tensor.shape[-1] != 3:
-                raise ValueError(f"Expected RGB data with channels-last shape, got {tuple(tensor.shape)}")
+                raise PipelineInputShapeError(
+                    f"RGB 데이터는 channels-last shape이어야 합니다. 입력 shape: {tuple(tensor.shape)}"
+                )
         else:
-            raise TypeError(f"rgb must be a numpy.ndarray or torch.Tensor, got {type(rgb).__name__}")
+            raise PipelineInputShapeError(
+                f"rgb는 numpy.ndarray 또는 torch.Tensor 타입이어야 합니다. 입력 타입: {type(rgb).__name__}"
+            )
 
         tensor = tensor.to(device=self.device, dtype=torch.float32)
         if float(tensor.max().detach().cpu().item()) <= 1.0:
@@ -197,7 +229,7 @@ class MacenkoNormalizer:
             od = self._rgb_to_od(flat_rgb[fallback_valid]).reshape(-1, 3)
 
         if len(od) == 0:
-            raise ValueError("No valid tissue pixels found. Try lowering beta.")
+            raise NoTissuePixelsError("유효한 조직 픽셀을 찾지 못했습니다. beta 값을 낮춰보세요.")
 
         if len(od) > self.max_fit_pixels:
             rng = np.random.default_rng(self.random_seed)
@@ -278,7 +310,7 @@ class Macenko(ModelPipeline):
         self.logger.info(f"Use Macenko device: {self.device}")
 
         if target_img_path is None:
-            raise ValueError("Macenko pipeline requires a target image.")
+            raise MissingTargetImageError("Macenko 파이프라인에는 타겟 이미지가 필요합니다.")
         
         src_wsi_handle = open_wsi_handle(src_img_path)
         target_wsi_handle = open_wsi_handle(target_img_path)
@@ -353,15 +385,15 @@ class Macenko(ModelPipeline):
 
     def _validate_config(self) -> None:
         if self.batch_size <= 0:
-            raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
+            raise ValueError(f"batch_size는 0보다 커야 합니다. 입력값: {self.batch_size}")
         if self.patch_size <= 0:
-            raise ValueError(f"patch_size must be > 0, got {self.patch_size}")
+            raise ValueError(f"patch_size는 0보다 커야 합니다. 입력값: {self.patch_size}")
         if self.max_sample_patches <= 0:
             raise ValueError(
-                f"max_sample_patches must be > 0, got {self.max_sample_patches}"
+                f"max_sample_patches는 0보다 커야 합니다. 입력값: {self.max_sample_patches}"
             )
         if self.max_iteration <= 0:
-            raise ValueError(f"max_iteration must be > 0, got {self.max_iteration}")
+            raise ValueError(f"max_iteration은 0보다 커야 합니다. 입력값: {self.max_iteration}")
 
     def _select_device(self, device: str | torch.device | None) -> torch.device:
         if device is not None:
@@ -422,10 +454,10 @@ class Macenko(ModelPipeline):
             )
 
         if expected_iterations > self.max_iteration:
-            raise ValueError(
-                "Image is too big! "
-                f"Expected iteration: {expected_iterations}, "
-                f"Max iteration: {self.max_iteration}"
+            raise MacenkoImageTooLargeError(
+                "이미지가 너무 큽니다. "
+                f"예상 반복 횟수: {expected_iterations}, "
+                f"최대 반복 횟수: {self.max_iteration}"
             )
 
         return level
@@ -512,20 +544,30 @@ class Macenko(ModelPipeline):
             if patches.ndim == 3:
                 patches = patches[np.newaxis, ...]
             if patches.ndim != 4:
-                raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+                raise PipelineInputShapeError(
+                    f"patch batch는 4차원 shape이어야 합니다. 입력 차원: {patches.ndim}D"
+                )
             if patches.shape[1] != 3:
-                raise ValueError(f"Expected CHW patch batch with 3 channels, got {patches.shape}")
+                raise PipelineInputShapeError(
+                    f"CHW patch batch는 3채널이어야 합니다. 입력 shape: {patches.shape}"
+                )
             tensor = torch.from_numpy(np.ascontiguousarray(patches))
         elif isinstance(patches, torch.Tensor):
             tensor = patches
             if tensor.ndim == 3:
                 tensor = tensor.unsqueeze(0)
             if tensor.ndim != 4:
-                raise ValueError(f"Expected patch batch with 4D shape, got {tensor.ndim}D")
+                raise PipelineInputShapeError(
+                    f"patch batch는 4차원 shape이어야 합니다. 입력 차원: {tensor.ndim}D"
+                )
             if tensor.shape[1] != 3:
-                raise ValueError(f"Expected CHW patch batch with 3 channels, got {tuple(tensor.shape)}")
+                raise PipelineInputShapeError(
+                    f"CHW patch batch는 3채널이어야 합니다. 입력 shape: {tuple(tensor.shape)}"
+                )
         else:
-            raise TypeError(f"patches must be a numpy.ndarray or torch.Tensor, got {type(patches).__name__}")
+            raise PipelineInputShapeError(
+                f"patches는 numpy.ndarray 또는 torch.Tensor 타입이어야 합니다. 입력 타입: {type(patches).__name__}"
+            )
 
         return tensor.to(device=self.device)
 
@@ -541,9 +583,13 @@ class Macenko(ModelPipeline):
         if patches.ndim == 3:
             patches = patches[np.newaxis, ...]
         if patches.ndim != 4:
-            raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+            raise PipelineInputShapeError(
+                f"patch batch는 4차원 shape이어야 합니다. 입력 차원: {patches.ndim}D"
+            )
         if patches.shape[1] != 3:
-            raise ValueError(f"Expected CHW patch batch with 3 channels, got {patches.shape}")
+            raise PipelineInputShapeError(
+                f"CHW patch batch는 3채널이어야 합니다. 입력 shape: {patches.shape}"
+            )
 
         return patches.transpose(0, 2, 3, 1)
 
@@ -551,8 +597,12 @@ class Macenko(ModelPipeline):
         if patches.ndim == 3:
             patches = patches[np.newaxis, ...]
         if patches.ndim != 4:
-            raise ValueError(f"Expected patch batch with 4D shape, got {patches.ndim}D")
+            raise PipelineInputShapeError(
+                f"patch batch는 4차원 shape이어야 합니다. 입력 차원: {patches.ndim}D"
+            )
         if patches.shape[-1] != 3:
-            raise ValueError(f"Expected HWC patch batch with 3 channels, got {patches.shape}")
+            raise PipelineInputShapeError(
+                f"HWC patch batch는 3채널이어야 합니다. 입력 shape: {patches.shape}"
+            )
 
         return patches.transpose(0, 3, 1, 2)

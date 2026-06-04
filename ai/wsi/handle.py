@@ -27,7 +27,7 @@ class WSIHandle:
 
         if not (0 <= level < level_count): #check if requested level is valid
             raise ValueError(
-                f"Level: {level} must be within [0, {level_count - 1}]"
+                f"level {level}은 0 이상 {level_count - 1} 이하이어야 합니다."
             )
         
         # Image의 범위가 유효한지 확인
@@ -36,12 +36,12 @@ class WSIHandle:
 
         if not (0 <= pos[0] <= img_width - dim[0]):
             raise ValueError(
-                f"Invalid width range: {(pos[0], pos[0] + dim[0])} for {(0, img_width)}"
+                f"너비 범위가 유효하지 않습니다: {(pos[0], pos[0] + dim[0])}, 허용 범위: {(0, img_width)}"
             )
         
         if not (0 <= pos[1] <= img_height - dim[1]):
             raise ValueError(
-                f"Invalid height range: {(pos[1], pos[1] + dim[1])} for {(0, img_height)}"
+                f"높이 범위가 유효하지 않습니다: {(pos[1], pos[1] + dim[1])}, 허용 범위: {(0, img_height)}"
             )
         
         downsample = float(self.level_downsamples[level]) #get downsample factor for that lv eg. 1 px at lv2 = 16 px at lv0

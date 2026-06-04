@@ -39,7 +39,7 @@ try:
     from scipy import ndimage as ndi
 except ImportError as e:
     raise ImportError(
-        "PatchSampler requires scipy. Please install it with: pip install scipy"
+        "PatchSampler를 사용하려면 scipy가 필요합니다. 다음 명령으로 설치해주세요: pip install scipy"
     ) from e
 
 from ai.wsi.patch_ref import PatchRef
@@ -61,10 +61,6 @@ class NoTissueFoundError(PatchSamplerError):
 
 class NoValidPatchError(PatchSamplerError):
     """Raised when no valid patches satisfy the mask/filter conditions."""
-
-
-class SlideOpenError(PatchSamplerError):
-    """Raised when the WSI cannot be opened properly."""
 
 
 class PatchSampler:
@@ -100,27 +96,27 @@ class PatchSampler:
         result_dir: str | Path = "result",        # folder where outputs get saved:
     ) -> None:
         if patch_size <= 0:
-            raise ValueError(f"patch_size must be > 0, got {patch_size}")
+            raise ValueError(f"patch_size는 0보다 커야 합니다. 입력값: {patch_size}")
         if stride is None:
             stride = max(1, patch_size // 4)  # 25% of patch size
         if stride <= 0:
-            raise ValueError(f"stride must be > 0, got {stride}")
+            raise ValueError(f"stride는 0보다 커야 합니다. 입력값: {stride}")
         if read_level < 0:
-            raise ValueError(f"read_level must be >= 0, got {read_level}")
+            raise ValueError(f"read_level은 0 이상이어야 합니다. 입력값: {read_level}")
         if not (0.0 <= training_tissue_threshold <= 1.0):
-            raise ValueError("training_tissue_threshold must be in [0, 1]")
+            raise ValueError("training_tissue_threshold는 0 이상 1 이하이어야 합니다.")
         if not (0.0 <= inference_tissue_threshold <= 1.0):
-            raise ValueError("inference_tissue_threshold must be in [0, 1]")
+            raise ValueError("inference_tissue_threshold는 0 이상 1 이하이어야 합니다.")
         if mask_longest_side <= 0:
-            raise ValueError("mask_longest_side must be > 0")
+            raise ValueError("mask_longest_side는 0보다 커야 합니다.")
         if not (0.0 <= mask_saturation_threshold <= 1.0):
-            raise ValueError("mask_saturation_threshold must be in [0, 1]")
+            raise ValueError("mask_saturation_threshold는 0 이상 1 이하이어야 합니다.")
         if not (0.0 <= mask_white_threshold <= 1.0):
-            raise ValueError("mask_white_threshold must be in [0, 1]")
+            raise ValueError("mask_white_threshold는 0 이상 1 이하이어야 합니다.")
         if morphology_kernel_size <= 0:
-            raise ValueError("morphology_kernel_size must be > 0")
+            raise ValueError("morphology_kernel_size는 0보다 커야 합니다.")
         if min_mask_region_area < 0:
-            raise ValueError("min_mask_region_area must be >= 0")
+            raise ValueError("min_mask_region_area는 0 이상이어야 합니다.")
 
         self.patch_size = patch_size
         self.stride = stride
@@ -197,7 +193,7 @@ class PatchSampler:
             Save thumbnail / tissue mask / overlay / sampled patch metadata
         """
         if mode not in {"training", "inference"}: #check that mode is valid
-            raise ValueError(f"mode must be 'training' or 'inference', got {mode}")
+            raise ValueError(f"mode는 'training' 또는 'inference'여야 합니다. 입력값: {mode}")
 
         if self.strict_mpp_check: #Check whether slide has valid mpp values
             self._validate_mpp(wsi_handle)
@@ -232,7 +228,7 @@ class PatchSampler:
         if not patch_refs: #if no valid patches exist
             self.logger.error("No valid patches found after tissue filtering.")
             raise NoValidPatchError(
-                f"No valid patches found for slide: {wsi_handle.image_path}"
+                f"조직 필터링 후 유효한 패치를 찾지 못했습니다: {wsi_handle.image_path}"
             )
         
         #log number of valid patches
@@ -273,7 +269,7 @@ class PatchSampler:
         if mpp_x <= 0 or mpp_y <= 0:
             self.logger.error("Missing or invalid MPP metadata: mpp=%s", wsi_handle.mpp)
             raise MissingMPPError(
-                f"Slide is missing valid MPP metadata: {wsi_handle.image_path}, mpp={wsi_handle.mpp}"
+                f"슬라이드에 유효한 MPP 메타데이터가 없습니다: {wsi_handle.image_path}, mpp={wsi_handle.mpp}"
             )
 
     def _validate_read_level(self, wsi_handle: WSIHandle) -> None:
@@ -284,7 +280,7 @@ class PatchSampler:
                 self.read_level, level_count
             )
             raise ValueError(
-                f"read_level {self.read_level} must be within [0, {level_count - 1}]"
+                f"read_level {self.read_level}은 0 이상 {level_count - 1} 이하이어야 합니다."
             )
 
         read_w, read_h = wsi_handle.level_dimensions[self.read_level] #width and height at specified level
@@ -294,7 +290,7 @@ class PatchSampler:
                 self.patch_size, (read_w, read_h)
             )
             raise ValueError(
-                f"patch_size={self.patch_size} is larger than read level dimensions {(read_w, read_h)}"
+                f"patch_size={self.patch_size}가 read level 크기 {(read_w, read_h)}보다 큽니다."
             )
 
     def _build_tissue_mask(self, wsi_handle: WSIHandle) -> dict:
@@ -334,7 +330,7 @@ class PatchSampler:
         if tissue_ratio <= 0.0: # error if no tissue is found
             self.logger.error("No tissue found in thumbnail mask.")
             raise NoTissueFoundError(
-                f"No tissue found in slide thumbnail: {wsi_handle.image_path}"
+                f"슬라이드 썸네일에서 조직 영역을 찾지 못했습니다: {wsi_handle.image_path}"
             )
 
         return {
@@ -467,7 +463,7 @@ class PatchSampler:
         hist = np.bincount(values.ravel(), minlength=256).astype(np.float64) #make histogram of grayscale intensity bins
         total = hist.sum() #adds up all histogram counts
         if total <= 0: #if there are no pixels - error
-            raise NoTissueFoundError("Empty grayscale histogram while building mask.")
+            raise NoTissueFoundError("마스크 생성 중 grayscale histogram이 비어 있습니다.")
 
         prob = hist / total #convert histogram to probabilities
         omega = np.cumsum(prob) #total % of all gray levels - eg. omega[t] : total % of all darker levels from 0 till t

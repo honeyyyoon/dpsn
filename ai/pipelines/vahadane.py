@@ -534,6 +534,7 @@ class Vahadane(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
+            use_gaussian_color_dist="gaussian_color_dist" in metrics,
             target_patch=target_patches,
         )
 

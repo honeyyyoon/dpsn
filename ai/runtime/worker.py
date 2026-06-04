@@ -44,13 +44,19 @@ class Worker:
             task.src_img_path, 
             task.result_path,
             task.target_img_path,
-            ["ssim", "psnr", "fid"],
+            ["ssim", "psnr", "fid", "gaussian_color_dist"],
             emit_event=emit_event
         )
         metrics = Metrics(
             ssim=self._score_or_zero(pipeline_result.scores.get("ssim")),
             psnr=self._score_or_zero(pipeline_result.scores.get("psnr")),
             fid=self._score_or_zero(pipeline_result.scores.get("fid")),
+            gaussian_color_dist=self._score_or_zero(
+                pipeline_result.scores.get("gaussian_color_dist")
+            ),
+            gaussian_color_gain=self._score_or_zero(
+                pipeline_result.scores.get("gaussian_color_gain")
+            ),
         )
 
         return TaskResult(

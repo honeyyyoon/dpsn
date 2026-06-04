@@ -129,7 +129,7 @@ class StainSWINPipeline(ModelPipeline):
         self._emit_progress(emit_event, 1, "Preparing StainSWIN inference.")
         
         tgt_images = None
-        if "fid" in metrics:
+        if "fid" in metrics or "gaussian_color_dist" in metrics:
             if target_img_path is None:
                 raise MissingTargetImageError(
                     "FID를 계산하려면 타겟 이미지가 필요합니다."
@@ -188,6 +188,7 @@ class StainSWINPipeline(ModelPipeline):
             use_ssim = "ssim" in metrics,
             use_psnr = "psnr" in metrics,
             use_fid = "fid" in metrics,
+            use_gaussian_color_dist = "gaussian_color_dist" in metrics,
             target_patch = tgt_images
         )
         self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")

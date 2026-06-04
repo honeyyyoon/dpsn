@@ -6,6 +6,8 @@ class Metrics:
     ssim: float
     psnr: float
     fid: float
+    gaussian_color_dist: float = 0.0
+    gaussian_color_gain: float = 0.0
 
 @dataclass
 class Task:

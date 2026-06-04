@@ -23,7 +23,13 @@ export interface JobResultResponse {
   job_id: string;
   status: string;
   result_image_id: string;
-  metrics: { ssim: number; psnr: number; fid: number };
+  metrics: {
+    ssim: number;
+    psnr: number;
+    fid: number;
+    gaussian_color_dist?: number;
+    gaussian_color_gain?: number;
+  };
   elapsed_seconds: number;
 }
 
@@ -34,12 +40,13 @@ export interface ModelUi extends Model {
 }
 
 export interface MetricDef {
-  key: 'psnr' | 'ssim' | 'fid';
+  key: keyof JobResultResponse['metrics'];
   label: string;
   unit: string;
   higherBetter: boolean;
   desc: string;
   ref: number;
+  precision?: number;
 }
 
 export interface JobResult {

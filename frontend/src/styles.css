@@ -86,9 +86,23 @@ input, textarea, select { font-family: inherit; }
 
 .app {
   display: grid;
-  grid-template-columns: var(--sb-w) 1fr;
+  grid-template-columns: var(--sb-w) 5px 1fr;
   height: 100vh;
   min-height: 0;
+}
+
+.sb-resize-handle {
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 10;
+  transition: background 120ms;
+  user-select: none;
+}
+.sb-resize-handle:hover,
+.sb-resize-handle.dragging {
+  background: var(--accent);
+  opacity: 0.35;
 }
 
 .sidebar {
@@ -109,11 +123,11 @@ input, textarea, select { font-family: inherit; }
 }
 
 .topbar {
-  height: 72px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   flex-shrink: 0;
@@ -132,9 +146,9 @@ input, textarea, select { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 18px 20px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--border);
-  height: 72px;
+  height: 60px;
   flex-shrink: 0;
 }
 .sb-brand .mark {

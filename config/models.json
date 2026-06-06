@@ -34,5 +34,11 @@
         "name": "StainSWIN",
         "category": "Learning-based",
         "description": "Vision Transformer 기반 모델"
+    },
+    {
+        "id": 7,
+        "name": "MultiStainCycleGAN",
+        "category": "Learning-based",
+        "description": "다중 염색 도메인 간 CycleGAN 기반 변환"
     }
 ]

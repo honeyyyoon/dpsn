@@ -396,10 +396,10 @@ const MOCK_JOBS: UiJob[] = [
     status: "done",
     when: "3h",
     results: {
-      1: { metrics: { ssim: 0.883, psnr: 27.14, fid: 15.8 }, result_image_id: "", elapsed_seconds: 12 },
-      2: { metrics: { ssim: 0.871, psnr: 26.58, fid: 7.4  }, result_image_id: "", elapsed_seconds: 19 },
-      3: { metrics: { ssim: 0.961, psnr: 24.92, fid: 12.3 }, result_image_id: "", elapsed_seconds: 28 },
-      5: { metrics: { ssim: 0.914, psnr: 33.47, fid: 10.1 }, result_image_id: "", elapsed_seconds: 87 },
+      1: { metrics: { ssim: 0.883, psnr: 27.14, fid: 15.8, gaussian_color_dist: 0.612, gaussian_color_gain: 0.184 }, result_image_id: "", elapsed_seconds: 12 },
+      2: { metrics: { ssim: 0.871, psnr: 26.58, fid: 7.4,  gaussian_color_dist: 0.431, gaussian_color_gain: 0.365 }, result_image_id: "", elapsed_seconds: 19 },
+      3: { metrics: { ssim: 0.961, psnr: 24.92, fid: 12.3, gaussian_color_dist: 0.378, gaussian_color_gain: 0.418 }, result_image_id: "", elapsed_seconds: 28 },
+      5: { metrics: { ssim: 0.914, psnr: 33.47, fid: 10.1, gaussian_color_dist: 0.293, gaussian_color_gain: 0.503 }, result_image_id: "", elapsed_seconds: 87 },
     },
   },
   // 5 models — PSNR best: StainNet, SSIM best: Vahadane, FID best: StainGAN
@@ -410,11 +410,11 @@ const MOCK_JOBS: UiJob[] = [
     status: "done",
     when: "1d",
     results: {
-      1: { metrics: { ssim: 0.881, psnr: 27.52, fid: 15.1 }, result_image_id: "", elapsed_seconds: 14 },
-      2: { metrics: { ssim: 0.869, psnr: 26.34, fid: 13.6 }, result_image_id: "", elapsed_seconds: 22 },
-      3: { metrics: { ssim: 0.963, psnr: 23.87, fid: 12.4 }, result_image_id: "", elapsed_seconds: 31 },
-      4: { metrics: { ssim: 0.921, psnr: 29.64, fid: 6.2  }, result_image_id: "", elapsed_seconds: 143 },
-      5: { metrics: { ssim: 0.934, psnr: 34.21, fid: 9.7  }, result_image_id: "", elapsed_seconds: 89 },
+      1: { metrics: { ssim: 0.881, psnr: 27.52, fid: 15.1, gaussian_color_dist: 0.587, gaussian_color_gain: 0.209 }, result_image_id: "", elapsed_seconds: 14 },
+      2: { metrics: { ssim: 0.869, psnr: 26.34, fid: 13.6, gaussian_color_dist: 0.414, gaussian_color_gain: 0.382 }, result_image_id: "", elapsed_seconds: 22 },
+      3: { metrics: { ssim: 0.963, psnr: 23.87, fid: 12.4, gaussian_color_dist: 0.362, gaussian_color_gain: 0.434 }, result_image_id: "", elapsed_seconds: 31 },
+      4: { metrics: { ssim: 0.921, psnr: 29.64, fid: 6.2,  gaussian_color_dist: 0.241, gaussian_color_gain: 0.555 }, result_image_id: "", elapsed_seconds: 143 },
+      5: { metrics: { ssim: 0.934, psnr: 34.21, fid: 9.7,  gaussian_color_dist: 0.278, gaussian_color_gain: 0.518 }, result_image_id: "", elapsed_seconds: 89 },
     },
   },
   // 6 models — PSNR best: StainNet, SSIM best: Vahadane, FID best: StainGAN
@@ -425,12 +425,29 @@ const MOCK_JOBS: UiJob[] = [
     status: "done",
     when: "2d",
     results: {
-      1: { metrics: { ssim: 0.874, psnr: 27.31, fid: 16.2 }, result_image_id: "", elapsed_seconds: 11 },
-      2: { metrics: { ssim: 0.858, psnr: 26.04, fid: 14.5 }, result_image_id: "", elapsed_seconds: 18 },
-      3: { metrics: { ssim: 0.957, psnr: 23.41, fid: 13.1 }, result_image_id: "", elapsed_seconds: 27 },
-      4: { metrics: { ssim: 0.918, psnr: 28.76, fid: 5.8  }, result_image_id: "", elapsed_seconds: 158 },
-      5: { metrics: { ssim: 0.929, psnr: 35.08, fid: 10.3 }, result_image_id: "", elapsed_seconds: 92 },
-      6: { metrics: { ssim: 0.943, psnr: 31.54, fid: 8.6  }, result_image_id: "", elapsed_seconds: 234 },
+      1: { metrics: { ssim: 0.874, psnr: 27.31, fid: 16.2, gaussian_color_dist: 0.601, gaussian_color_gain: 0.195 }, result_image_id: "", elapsed_seconds: 11 },
+      2: { metrics: { ssim: 0.858, psnr: 26.04, fid: 14.5, gaussian_color_dist: 0.443, gaussian_color_gain: 0.353 }, result_image_id: "", elapsed_seconds: 18 },
+      3: { metrics: { ssim: 0.957, psnr: 23.41, fid: 13.1, gaussian_color_dist: 0.391, gaussian_color_gain: 0.405 }, result_image_id: "", elapsed_seconds: 27 },
+      4: { metrics: { ssim: 0.918, psnr: 28.76, fid: 5.8,  gaussian_color_dist: 0.258, gaussian_color_gain: 0.538 }, result_image_id: "", elapsed_seconds: 158 },
+      5: { metrics: { ssim: 0.929, psnr: 35.08, fid: 10.3, gaussian_color_dist: 0.287, gaussian_color_gain: 0.509 }, result_image_id: "", elapsed_seconds: 92 },
+      6: { metrics: { ssim: 0.943, psnr: 31.54, fid: 8.6,  gaussian_color_dist: 0.274, gaussian_color_gain: 0.522 }, result_image_id: "", elapsed_seconds: 234 },
+    },
+  },
+  // 7 models — ColorGain best: MultiStainCycleGAN, PSNR best: StainNet, SSIM best: Vahadane, FID best: StainGAN
+  {
+    id: "mock-7m",
+    wsi: "TCGA-STAD-A7MX",
+    modelIds: [1, 2, 3, 4, 5, 6, 7],
+    status: "done",
+    when: "3d",
+    results: {
+      1: { metrics: { ssim: 0.871, psnr: 27.18, fid: 16.5, gaussian_color_dist: 0.598, gaussian_color_gain: 0.198 }, result_image_id: "", elapsed_seconds: 11 },
+      2: { metrics: { ssim: 0.854, psnr: 25.89, fid: 14.8, gaussian_color_dist: 0.437, gaussian_color_gain: 0.359 }, result_image_id: "", elapsed_seconds: 19 },
+      3: { metrics: { ssim: 0.959, psnr: 23.74, fid: 13.4, gaussian_color_dist: 0.385, gaussian_color_gain: 0.411 }, result_image_id: "", elapsed_seconds: 28 },
+      4: { metrics: { ssim: 0.916, psnr: 28.53, fid: 5.6,  gaussian_color_dist: 0.252, gaussian_color_gain: 0.544 }, result_image_id: "", elapsed_seconds: 162 },
+      5: { metrics: { ssim: 0.931, psnr: 35.24, fid: 10.1, gaussian_color_dist: 0.281, gaussian_color_gain: 0.515 }, result_image_id: "", elapsed_seconds: 94 },
+      6: { metrics: { ssim: 0.945, psnr: 31.72, fid: 8.3,  gaussian_color_dist: 0.269, gaussian_color_gain: 0.527 }, result_image_id: "", elapsed_seconds: 238 },
+      7: { metrics: { ssim: 0.938, psnr: 33.41, fid: 7.1,  gaussian_color_dist: 0.214, gaussian_color_gain: 0.582 }, result_image_id: "", elapsed_seconds: 287 },
     },
   },
   {
@@ -488,6 +505,30 @@ export default function App() {
   const [addModelJob, setAddModelJob] = useState<UiJob | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [sbWidth, setSbWidth] = useState(304);
+  const sbDragging = useRef(false);
+  const sbDragStartX = useRef(0);
+  const sbDragStartW = useRef(0);
+  const sbHandleRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!sbDragging.current) return;
+      const next = Math.max(200, Math.min(520, sbDragStartW.current + e.clientX - sbDragStartX.current));
+      setSbWidth(next);
+    };
+    const onUp = () => {
+      if (!sbDragging.current) return;
+      sbDragging.current = false;
+      sbHandleRef.current?.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
   const toggleModel = (id: number) =>
     setSelected((prev) => {
@@ -714,7 +755,7 @@ export default function App() {
       : "Stain Normalization 비교 플랫폼";
 
   return (
-    <div className="app">
+    <div className="app" style={{ '--sb-w': `${sbWidth}px` } as never}>
       <Sidebar
         jobs={jobs}
         activeJobId={activeJobId}
@@ -725,6 +766,19 @@ export default function App() {
         onJobTerminate={handleJobTerminate}
         onAddModels={(job) => setAddModelJob(job)}
         onDownloadAll={handleDownloadAll}
+      />
+      <div
+        ref={sbHandleRef}
+        className="sb-resize-handle"
+        onMouseDown={(e) => {
+          sbDragging.current = true;
+          sbDragStartX.current = e.clientX;
+          sbDragStartW.current = sbWidth;
+          sbHandleRef.current?.classList.add('dragging');
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        }}
       />
       {addModelJob && (
         <AddModelModal

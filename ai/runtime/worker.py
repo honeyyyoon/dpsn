@@ -47,11 +47,21 @@ PIPELINE_CONFIG_MAP: dict[int, str] = {
 class Worker:
     """Simple runtime coordinator for one normalization task."""
 
-    def run(self, task: Task, emit_event) -> TaskResult:
+    def run(
+        self,
+        task: Task,
+        emit_event,
+        device: str | None = None,
+    ) -> TaskResult:
         evaluation_samples = self._sample_for_evaluation(task, emit_event)
 
-        emit_event(status="running", progress=1, message="Loading pipeline.")
-        pipeline = self._create_pipeline(task.model_id)
+        device_message = f" on {device}" if device else ""
+        emit_event(
+            status="running",
+            progress=1,
+            message=f"Loading pipeline{device_message}.",
+        )
+        pipeline = self._create_pipeline(task.model_id, device=device)
         pipeline_result = pipeline.run(
             task.src_img_path, 
             task.result_path,
@@ -128,7 +138,11 @@ class Worker:
         metric.evaluate(evaluation_samples.source_patches, output_patches)
         return metric.finalize()
 
-    def _create_pipeline(self, model_id: int) -> ModelPipeline:
+    def _create_pipeline(
+        self,
+        model_id: int,
+        device: str | None = None,
+    ) -> ModelPipeline:
         pipeline_path = PIPELINE_MAP.get(model_id)
         if pipeline_path is None:
             raise UnknownModelError(
@@ -143,7 +157,23 @@ class Worker:
             raise PipelineImportError(
                 f"model_id {model_id}의 파이프라인 '{pipeline_path}'을 불러오지 못했습니다: {error}"
             ) from error
-        return pipeline_class(self._build_logger(Path("result/log.txt")))
+
+        logger = self._build_logger(Path("result/log.txt"))
+        config_class_name = PIPELINE_CONFIG_MAP.get(model_id)
+        if config_class_name is not None:
+            try:
+                config_class = getattr(module, config_class_name)
+            except AttributeError as error:
+                raise PipelineImportError(
+                    f"model_id {model_id}의 설정 클래스 "
+                    f"'{config_class_name}'을 불러오지 못했습니다: {error}"
+                ) from error
+            return pipeline_class(
+                logger,
+                config=config_class(device=device or "auto"),
+            )
+
+        return pipeline_class(logger, device=device)
 
     def _score_or_zero(self, value: Any) -> float:
         if value is None:

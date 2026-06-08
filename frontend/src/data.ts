@@ -6,13 +6,14 @@ export const MODELS: ModelUi[] = [
   { id: 3, name: 'Vahadane',  category: 'Classical',      description: '구조 보존이 뛰어난 stain 분리 기법',             tint: '#eab308', fast: true  },
   { id: 4, name: 'StainGAN',  category: 'Learning-based', description: 'source-target 간 Image-to-Image 변환',         tint: '#8b5cf6', fast: false },
   { id: 5, name: 'StainNet',  category: 'Learning-based', description: '경량 CNN 기반 stain 정규화',                    tint: '#f97316', fast: false },
-  { id: 6, name: 'StainSWIN', category: 'Learning-based', description: 'Vision Transformer 기반 모델',                  tint: '#ec4899', fast: false },
+  { id: 6, name: 'StainSWIN',          category: 'Learning-based', description: 'Vision Transformer 기반 모델',                  tint: '#ec4899', fast: false },
+  { id: 7, name: 'MultiStainCycleGAN', category: 'Learning-based', description: '다중 염색 도메인 간 CycleGAN 기반 변환',            tint: '#06b6d4', fast: false },
 ];
 
 export const METRIC_DEFS: MetricDef[] = [
   { key: 'psnr', label: 'PSNR',  unit: 'dB', higherBetter: true,  desc: 'Peak signal-to-noise ratio', ref: 22   },
   { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity',       ref: 0.90, precision: 3 },
   { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance',  ref: 60   },
-  { key: 'gaussian_color_dist', label: 'ColorDist', unit: '', higherBetter: false, desc: 'K=6 OD GMM distance to target', ref: 0.50, precision: 3 },
+  { key: 'gaussian_color_dist', label: 'ColorDist', unit: '', higherBetter: false, desc: 'K=3 circular HSV GMM distance to target', ref: 0.50, precision: 3 },
   { key: 'gaussian_color_gain', label: 'ColorGain', unit: '', higherBetter: true, desc: 'ColorDist(A,T) - ColorDist(NA,T)', ref: 0, precision: 3 },
 ];

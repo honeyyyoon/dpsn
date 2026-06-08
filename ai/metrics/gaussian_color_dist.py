@@ -13,15 +13,17 @@ class GaussianColorDistError(RuntimeError):
 
 
 class GaussianColorDistInputError(GaussianColorDistError):
-    """Raised when metric input cannot provide valid OD pixels."""
+    """Raised when metric input cannot provide valid color pixels."""
 
 
 @dataclass(frozen=True)
 class GaussianColorDistConfig:
-    n_components: int = 6
+    n_components: int = 3
     io: float = 240.0
     eps: float = 1e-8
     covariance_eps: float = 1e-4
+    min_saturation: float = 0.02
+    max_value: float = 0.98
     max_target_pixels: int = 120_000
     max_domain_pixels: int = 120_000
     max_update_pixels: int = 20_000
@@ -46,17 +48,16 @@ class GaussianColorDistMetric:
     config: GaussianColorDistConfig = field(default_factory=GaussianColorDistConfig)
 
     def __post_init__(self) -> None:
-        self._rng = np.random.default_rng(self.config.random_seed)
-        self._source_pixels = np.empty((0, 3), dtype=np.float64)
-        self._normalized_pixels = np.empty((0, 3), dtype=np.float64)
-        target_pixels = self._sample_od_pixels(
+        target_pixels = self._sample_hsv_pixels(
             self.target_patch,
             max_pixels=self.config.max_target_pixels,
         )
+        self._source_pixels = np.empty((0, target_pixels.shape[1]), dtype=np.float64)
+        self._normalized_pixels = np.empty((0, target_pixels.shape[1]), dtype=np.float64)
         self._target_gmm = fit_gmm(
             target_pixels,
             config=self.config,
-            rng=self._rng,
+            rng=np.random.default_rng(self.config.random_seed),
         )
 
     def evaluate(
@@ -66,11 +67,11 @@ class GaussianColorDistMetric:
     ) -> None:
         self._source_pixels = self._merge_samples(
             self._source_pixels,
-            self._sample_od_pixels(source_patch),
+            self._sample_hsv_pixels(source_patch),
         )
         self._normalized_pixels = self._merge_samples(
             self._normalized_pixels,
-            self._sample_od_pixels(output_patch),
+            self._sample_hsv_pixels(output_patch),
         )
 
     def finalize(self) -> dict[str, float | None]:
@@ -81,13 +82,13 @@ class GaussianColorDistMetric:
         source_gmm = fit_gmm(
             self._source_pixels,
             config=self.config,
-            rng=self._rng,
+            rng=np.random.default_rng(self.config.random_seed),
             n_components=n_components,
         )
         normalized_gmm = fit_gmm(
             self._normalized_pixels,
             config=self.config,
-            rng=self._rng,
+            rng=np.random.default_rng(self.config.random_seed),
             n_components=n_components,
         )
 
@@ -106,40 +107,32 @@ class GaussianColorDistMetric:
             "gaussian_color_gain": round(color_gain, self.config.precision),
         }
 
-    def _sample_od_pixels(
+    def _sample_hsv_pixels(
         self,
         patch: np.ndarray | Any,
         max_pixels: int | None = None,
     ) -> np.ndarray:
         rgb = _to_bhwc_rgb(patch)
-        od = _rgb_to_od(rgb, self.config).reshape(-1, 3)
-
-        rgb_flat = rgb.reshape(-1, 3).astype(np.float64, copy=False) / 255.0
-        channel_max = np.max(rgb_flat, axis=1)
-        channel_min = np.min(rgb_flat, axis=1)
-        saturation = (channel_max - channel_min) / (channel_max + self.config.eps)
-        od_norm = np.linalg.norm(od, axis=1)
+        hsv_flat = _rgb_to_circular_hsv(rgb, self.config).reshape(-1, 4)
 
         valid = (
-            np.isfinite(od).all(axis=1)
-            & (od_norm > 0.15)
-            & (channel_max < 0.98)
-            & (saturation > 0.02)
+            np.isfinite(hsv_flat).all(axis=1)
+            & (hsv_flat[:, 2] > self.config.min_saturation)
+            & (hsv_flat[:, 3] < self.config.max_value)
         )
-        od = od[valid]
-        if len(od) == 0:
-            fallback = np.isfinite(od_norm) & (od_norm > 0.15)
-            od = _rgb_to_od(rgb, self.config).reshape(-1, 3)[fallback]
+        hsv = hsv_flat[valid]
+        if len(hsv) == 0:
+            fallback = (
+                np.isfinite(hsv_flat).all(axis=1)
+                & (hsv_flat[:, 3] < self.config.max_value)
+            )
+            hsv = hsv_flat[fallback]
 
-        if len(od) == 0:
-            raise GaussianColorDistInputError("No valid tissue OD pixels found.")
+        if len(hsv) == 0:
+            raise GaussianColorDistInputError("No valid tissue HSV pixels found.")
 
         max_pixels = max_pixels or self.config.max_update_pixels
-        if len(od) > max_pixels:
-            indices = self._rng.choice(len(od), size=max_pixels, replace=False)
-            od = od[indices]
-
-        return od.astype(np.float64, copy=False)
+        return _limit_pixels(hsv, max_pixels).astype(np.float64, copy=False)
 
     def _merge_samples(
         self,
@@ -150,12 +143,7 @@ class GaussianColorDistMetric:
         if len(merged) <= self.config.max_domain_pixels:
             return merged
 
-        indices = self._rng.choice(
-            len(merged),
-            size=self.config.max_domain_pixels,
-            replace=False,
-        )
-        return merged[indices]
+        return _limit_pixels(merged, self.config.max_domain_pixels)
 
 
 def fit_gmm(
@@ -171,7 +159,7 @@ def fit_gmm(
     means = _init_means_kmeans_plus_plus(pixels, k, rng)
     global_cov = np.cov(pixels, rowvar=False)
     if global_cov.ndim == 0:
-        global_cov = np.eye(3) * float(global_cov)
+        global_cov = np.eye(pixels.shape[1]) * float(global_cov)
     global_cov = _regularize_covariance(global_cov, config.covariance_eps)
     covariances = np.repeat(global_cov[np.newaxis, :, :], k, axis=0)
     weights = np.full(k, 1.0 / k, dtype=np.float64)
@@ -325,17 +313,18 @@ def _init_means_kmeans_plus_plus(
 
 def _regularize_covariance(covariance: np.ndarray, eps: float) -> np.ndarray:
     covariance = np.asarray(covariance, dtype=np.float64)
-    if covariance.shape != (3, 3):
-        covariance = np.eye(3, dtype=np.float64) * eps
+    if covariance.ndim != 2 or covariance.shape[0] != covariance.shape[1]:
+        dim = covariance.shape[0] if covariance.ndim == 2 and covariance.shape[0] > 0 else 1
+        covariance = np.eye(dim, dtype=np.float64) * eps
     covariance = 0.5 * (covariance + covariance.T)
-    return covariance + np.eye(3, dtype=np.float64) * eps
+    return covariance + np.eye(covariance.shape[0], dtype=np.float64) * eps
 
 
 def _validate_pixels(pixels: np.ndarray) -> np.ndarray:
     pixels = np.asarray(pixels, dtype=np.float64)
-    if pixels.ndim != 2 or pixels.shape[1] != 3:
+    if pixels.ndim != 2 or pixels.shape[1] <= 0:
         raise GaussianColorDistInputError(
-            f"pixels는 shape [N, 3]이어야 합니다. 입력 shape: {pixels.shape}"
+            f"pixels는 shape [N, D]이어야 합니다. 입력 shape: {pixels.shape}"
         )
     pixels = pixels[np.isfinite(pixels).all(axis=1)]
     if len(pixels) == 0:
@@ -343,16 +332,56 @@ def _validate_pixels(pixels: np.ndarray) -> np.ndarray:
     return pixels
 
 
-def _rgb_to_od(
+def _limit_pixels(pixels: np.ndarray, max_pixels: int) -> np.ndarray:
+    if max_pixels <= 0:
+        raise GaussianColorDistInputError(
+            f"max_pixels는 0보다 커야 합니다. 입력값: {max_pixels}"
+        )
+    if len(pixels) <= max_pixels:
+        return pixels
+
+    indices = np.linspace(0, len(pixels) - 1, num=max_pixels, dtype=np.int64)
+    return pixels[indices]
+
+
+def _rgb_to_circular_hsv(
     rgb: np.ndarray,
     config: GaussianColorDistConfig,
 ) -> np.ndarray:
     rgb = rgb.astype(np.float64, copy=False)
-    if np.nanmax(rgb) <= 1.0:
-        rgb = rgb * 255.0
+    if np.nanmax(rgb) > 1.0:
+        rgb = rgb / 255.0
+    rgb = np.clip(rgb, 0.0, 1.0)
 
-    rgb = np.clip(rgb, 1.0, config.io)
-    return -np.log((rgb + config.eps) / config.io)
+    red = rgb[..., 0]
+    green = rgb[..., 1]
+    blue = rgb[..., 2]
+    channel_max = np.max(rgb, axis=-1)
+    channel_min = np.min(rgb, axis=-1)
+    delta = channel_max - channel_min
+
+    hue = np.zeros_like(channel_max)
+    red_is_max = (channel_max == red) & (delta > config.eps)
+    green_is_max = (channel_max == green) & (delta > config.eps)
+    blue_is_max = (channel_max == blue) & (delta > config.eps)
+
+    hue[red_is_max] = (
+        (green[red_is_max] - blue[red_is_max]) / delta[red_is_max]
+    ) % 6.0
+    hue[green_is_max] = (
+        (blue[green_is_max] - red[green_is_max]) / delta[green_is_max]
+    ) + 2.0
+    hue[blue_is_max] = (
+        (red[blue_is_max] - green[blue_is_max]) / delta[blue_is_max]
+    ) + 4.0
+    hue = hue / 6.0
+
+    saturation = np.zeros_like(channel_max)
+    non_black = channel_max > config.eps
+    saturation[non_black] = delta[non_black] / channel_max[non_black]
+
+    radians = 2.0 * np.pi * hue
+    return np.stack([np.cos(radians), np.sin(radians), saturation, channel_max], axis=-1)
 
 
 def _to_bhwc_rgb(patch: np.ndarray | Any) -> np.ndarray:

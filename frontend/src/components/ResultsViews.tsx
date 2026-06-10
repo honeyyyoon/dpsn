@@ -442,7 +442,7 @@ export function SingleResult({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div
-          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}
+          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em", wordBreak: "keep-all" }}
         >
           결과 비교 대시보드
         </div>
@@ -616,7 +616,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
       {/* 헤더: 성공 모델 chip — 전체 클릭으로 숨기기 토글 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div
-          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}
+          style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em", wordBreak: "keep-all" }}
         >
           결과 비교 대시보드
         </div>
@@ -704,17 +704,18 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
               ))}
             </div>
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ minWidth: 580, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <th style={thStyle}>모델</th>
-                <th style={thStyle}>분류</th>
+                <th style={{ ...thStyle, whiteSpace: "nowrap" }}>분류</th>
                 {METRIC_DEFS.map((def) => (
-                  <th key={def.key} style={{ ...thStyle, textAlign: "right" }}>
+                  <th key={def.key} style={{ ...thStyle, textAlign: "right", whiteSpace: "nowrap" }}>
                     {def.label} <span style={{ color: "var(--text-dim)", fontWeight: 400 }}>({refLabel(def)})</span>
                   </th>
                 ))}
-                <th style={{ ...thStyle, textAlign: "right" }}>처리 시간</th>
+                <th style={{ ...thStyle, textAlign: "right", whiteSpace: "nowrap" }}>처리 시간</th>
               </tr>
             </thead>
             <tbody>
@@ -754,7 +755,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                       </div>
                     </td>
                     <td style={tdStyle}>
-                      <span className="chip">{m.category === "Classical" ? "알고리즘 기반" : "딥러닝 모델"}</span>
+                      <span className="chip" style={{ whiteSpace: "nowrap" }}>{m.category === "Classical" ? "알고리즘" : "딥러닝"}</span>
                     </td>
                     {METRIC_DEFS.map((def) => {
                       const isBest = best[def.key] === m.id;
@@ -776,6 +777,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

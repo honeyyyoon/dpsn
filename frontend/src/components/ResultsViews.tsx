@@ -705,7 +705,13 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
             </div>
           </div>
           <div style={{ overflowX: "auto" }}>
-          <table style={{ minWidth: 580, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ minWidth: 580, width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "10%" }} />
+              {METRIC_DEFS.map((def) => <col key={def.key} style={{ width: `${68 / METRIC_DEFS.length}%` }} />)}
+              <col style={{ width: "10%" }} />
+            </colgroup>
             <thead>
               <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <th style={thStyle}>모델</th>

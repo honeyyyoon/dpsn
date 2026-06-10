@@ -194,11 +194,10 @@ function LeftPanel({
           src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
           mode="dim"
           chip="원본"
-          style={{ height: 180, aspectRatio: "unset" }}
         />
       </div>
       <div className="card fade-up" style={{ padding: 12 }}>
-        <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" style={{ height: 180, aspectRatio: "unset" }} />
+        <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
       </div>
     </div>
   );
@@ -323,7 +322,6 @@ function ResultCard({
         chip={model.name}
         chipColor={model.tint}
         onRatioDetected={onRatioDetected}
-        style={{ height: 180, aspectRatio: "unset" }}
       >
         <div
           style={{
@@ -680,10 +678,10 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 640 }}>
           <div className="card fade-up" style={{ padding: 12 }}>
-            <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" style={{ height: 180, aspectRatio: "unset" }} />
+            <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" />
           </div>
           <div className="card fade-up" style={{ padding: 12 }}>
-            <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" style={{ height: 180, aspectRatio: "unset" }} />
+            <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
           </div>
         </div>
       )}

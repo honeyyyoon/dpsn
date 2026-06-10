@@ -709,20 +709,15 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
             </div>
           </div>
           <div style={{ overflowX: "auto" }}>
-          <table style={{ minWidth: 580, width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
-            <colgroup>
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "10%" }} />
-              {METRIC_DEFS.map((def) => <col key={def.key} style={{ width: `${68 / METRIC_DEFS.length}%` }} />)}
-              <col style={{ width: "10%" }} />
-            </colgroup>
+          <table style={{ minWidth: 560, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <th style={thStyle}>모델</th>
                 <th style={{ ...thStyle, whiteSpace: "nowrap" }}>분류</th>
                 {METRIC_DEFS.map((def) => (
-                  <th key={def.key} style={{ ...thStyle, textAlign: "right", whiteSpace: "nowrap" }}>
-                    {def.label} <span style={{ color: "var(--text-dim)", fontWeight: 400 }}>({refLabel(def)})</span>
+                  <th key={def.key} style={{ ...thStyle, textAlign: "right" }}>
+                    {def.label}
+                    <div style={{ color: "var(--text-dim)", fontWeight: 400, fontSize: 11, textTransform: "none", letterSpacing: 0 }}>({refLabel(def)})</div>
                   </th>
                 ))}
                 <th style={{ ...thStyle, textAlign: "right", whiteSpace: "nowrap" }}>처리 시간</th>
@@ -757,7 +752,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                   >
                     <td style={tdStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint }} />
+                        <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint, flexShrink: 0 }} />
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</div>
                         <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 숨기기`} style={{ color: "var(--text-muted)" }}>
                           <Icon name="eye" size={14} />

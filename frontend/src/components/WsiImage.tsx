@@ -103,8 +103,8 @@ export function WsiView({ label, sublabel, seed, src, mode = 'h-e', tint, intens
       overflow: 'hidden',
       aspectRatio: '1 / 1',
       minHeight: 0,
+      ...(src && detectedRatio ? { aspectRatio: `${Math.min(detectedRatio, 1.5)}` } : {}),
       ...style,
-      ...(src && detectedRatio ? { aspectRatio: `${Math.min(detectedRatio, 2)}` } : {}),
     }}>
       {src
         ? <img

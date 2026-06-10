@@ -194,10 +194,11 @@ function LeftPanel({
           src={srcImageId ? getImageUrl(srcImageId, true) : undefined}
           mode="dim"
           chip="원본"
+          style={{ height: 180, aspectRatio: "unset" }}
         />
       </div>
       <div className="card fade-up" style={{ padding: 12 }}>
-        <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
+        <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" style={{ height: 180, aspectRatio: "unset" }} />
       </div>
     </div>
   );
@@ -322,6 +323,7 @@ function ResultCard({
         chip={model.name}
         chipColor={model.tint}
         onRatioDetected={onRatioDetected}
+        style={{ height: 180, aspectRatio: "unset" }}
       >
         <div
           style={{
@@ -363,10 +365,10 @@ function ResultCard({
                       textTransform: "uppercase",
                       letterSpacing: "0.04em",
                       fontWeight: 600,
+                      lineHeight: 1,
                     }}
                   >
                     {def.label}
-                    {isBest && <span style={{ marginLeft: 3 }}>★</span>}
                   </div>
                   <div
                     className="num"
@@ -374,8 +376,12 @@ function ResultCard({
                       fontSize: 12,
                       fontWeight: 600,
                       color: metricColor(def, val),
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
                     }}
                   >
+                    {isBest && <span style={{ fontSize: 9 }}>★</span>}
                     {formatMetricValue(def, val)}
                   </div>
                 </div>
@@ -674,10 +680,10 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 640 }}>
           <div className="card fade-up" style={{ padding: 12 }}>
-            <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" />
+            <WsiView seed={seed} src={srcImageId ? getImageUrl(srcImageId, true) : undefined} mode="dim" chip="원본" style={{ height: 180, aspectRatio: "unset" }} />
           </div>
           <div className="card fade-up" style={{ padding: 12 }}>
-            <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" />
+            <WsiView seed={seed} src={getTargetImageUrl()} mode="dim" chip="타겟" style={{ height: 180, aspectRatio: "unset" }} />
           </div>
         </div>
       )}

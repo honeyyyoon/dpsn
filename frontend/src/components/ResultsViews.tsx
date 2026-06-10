@@ -709,7 +709,13 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
             </div>
           </div>
           <div style={{ overflowX: "auto" }}>
-          <table style={{ minWidth: 560, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ minWidth: 560, width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "8%" }} />
+              {METRIC_DEFS.map((def) => <col key={def.key} style={{ width: `${63 / METRIC_DEFS.length}%` }} />)}
+              <col style={{ width: "9%" }} />
+            </colgroup>
             <thead>
               <tr style={{ color: "var(--text-muted)", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <th style={thStyle}>모델</th>
@@ -733,7 +739,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                       <td style={tdStyle}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint, opacity: 0.4 }} />
-                          <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-dim)" }}>{m.name}</div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{m.name}</div>
                           <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 표시`} style={{ color: "var(--text-dim)" }}>
                             <Icon name="eye-off" size={14} />
                           </button>
@@ -753,7 +759,7 @@ export function MultiDashboard({ models, results, failedJobs = {}, srcImageId }:
                     <td style={tdStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ width: 8, height: 28, borderRadius: 2, background: m.tint, flexShrink: 0 }} />
-                        <div style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{m.name}</div>
                         <button className="icon-btn" onClick={() => toggleModel(m.id)} title={`${m.name} 숨기기`} style={{ color: "var(--text-muted)" }}>
                           <Icon name="eye" size={14} />
                         </button>

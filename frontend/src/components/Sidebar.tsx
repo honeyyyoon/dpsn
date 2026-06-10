@@ -187,7 +187,7 @@ export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate
       <button
         className="sb-brand"
         style={{ padding: '12px 16px', justifyContent: 'center', width: '100%', cursor: 'pointer' }}
-        onClick={() => { navigate('/'); onReset?.(); }}
+        onClick={() => onReset ? onReset() : navigate('/')}
         title="메인 화면으로"
       >
         <img src="/mainImage.png" alt="Stain Normalization 비교 플랫폼" style={{ height: 36, width: 'auto', display: 'block' }}/>

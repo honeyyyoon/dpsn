@@ -379,7 +379,7 @@ function ResultCard({
                       gap: 2,
                     }}
                   >
-                    {isBest && <span style={{ fontSize: 9 }}>★</span>}
+                    {isBest && <span aria-hidden="true" style={{ fontSize: 9 }}>★</span>}
                     {formatMetricValue(def, val)}
                   </div>
                 </div>

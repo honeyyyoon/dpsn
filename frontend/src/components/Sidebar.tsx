@@ -177,16 +177,17 @@ interface SidebarProps {
   onJobTerminate: (jobId: string) => void;
   onAddModels: (job: UiJob) => void;
   onDownloadAll: (job: UiJob) => void;
+  onReset?: () => void;
 }
 
-export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate, onAddModels, onDownloadAll }: SidebarProps) {
+export default function Sidebar({ jobs, activeJobId, onSelectJob, onJobTerminate, onAddModels, onDownloadAll, onReset }: SidebarProps) {
   const navigate = useNavigate();
   return (
     <aside className="sidebar">
       <button
         className="sb-brand"
         style={{ padding: '12px 16px', justifyContent: 'center', width: '100%', cursor: 'pointer' }}
-        onClick={() => navigate('/')}
+        onClick={() => onReset ? onReset() : navigate('/')}
         title="메인 화면으로"
       >
         <img src="/mainImage.png" alt="Stain Normalization 비교 플랫폼" style={{ height: 36, width: 'auto', display: 'block' }}/>

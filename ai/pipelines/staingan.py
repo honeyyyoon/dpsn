@@ -440,7 +440,8 @@ class StainGANPipeline(ModelPipeline):
         This method is intentionally patch-level so future pseudo-pair export can
         call it and save original patches next to their StainGAN-normalized outputs.
         """
-        batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
+        source_batch = np.stack(patches_chw, axis=0).astype(np.uint8)
+        batch = source_batch.astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
         tensor = torch.from_numpy(batch).to(
             device=self.device,
             dtype=torch.float32,
@@ -461,7 +462,7 @@ class StainGANPipeline(ModelPipeline):
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8) #Convert from [0,1] floats to [0,255] uint8 image values
         if self.config.preserve_background:
-            output_np = self._preserve_background(batch.astype(np.uint8), output_np)
+            output_np = self._preserve_background(source_batch, output_np)
         return [output_np[i] for i in range(output_np.shape[0])] #split back into list of patches
 
     def _preserve_background(

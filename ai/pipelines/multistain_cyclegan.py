@@ -360,7 +360,8 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         }
 
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]:
-        batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0
+        source_batch = np.stack(patches_chw, axis=0).astype(np.uint8)
+        batch = source_batch.astype(np.float32) / 255.0
         tensor = torch.from_numpy(batch).to(
             device=self.device,
             dtype=torch.float32,
@@ -381,7 +382,7 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8)
         if self.config.preserve_background:
-            output_np = self._preserve_background(batch.astype(np.uint8), output_np)
+            output_np = self._preserve_background(source_batch, output_np)
         return [output_np[i] for i in range(output_np.shape[0])]
 
     def _preserve_background(

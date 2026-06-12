@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from ai.metrics.metric import Metric
 from ai.models.staingan.staingan_model import ResnetGenerator
@@ -439,10 +440,16 @@ class StainGANPipeline(ModelPipeline):
             dtype=torch.float32,
         ) #convert numpy -> tensor
         tensor = (tensor - 0.5) * 2.0
+        input_h, input_w = tensor.shape[-2:]
+        pad_h = (-input_h) % 4
+        pad_w = (-input_w) % 4
+        if pad_h or pad_w:
+            tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode="replicate")
 
         with torch.inference_mode(): #inference mode only - no tracking gradients
             output = self.model(tensor) #applies trained staingan generator to the batch
 
+        output = output[..., :input_h, :input_w]
         output = output * 0.5 + 0.5 #Convert output from [-1,1] back to [0,1]
         output = torch.clamp(output, 0.0, 1.0) #clamp to valid image range - second check
         output_np = output.detach().cpu().numpy()

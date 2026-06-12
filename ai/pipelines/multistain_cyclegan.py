@@ -26,7 +26,7 @@ from ai.pipelines.target_utils import load_grid_target_patches
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import MultiZarrWSIWriter
+from ai.wsi.writer import BlendedMultiZarrWSIWriter, MultiZarrWSIWriter
 
 
 @dataclass(slots=True)
@@ -41,11 +41,13 @@ class MultiStainCycleGANInferenceConfig:
     generator_key: str = "net_g_source_to_target"
 
     patch_size: int = 512
-    stride: int = 512
+    stride: int = 256
     read_level: int = 0
     batch_size: int = 8
     tile_size: int = 512
     pyramid_levels: int = 3
+    overlap_blending: bool = True
+    blend_margin: int | None = None
     device: str = "auto"
     verbose: bool = True
     log_every_batches: int = 5
@@ -116,15 +118,11 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             total_batches=total_batches,
         )
 
-        writer = MultiZarrWSIWriter(
-            output_path=result_path,
+        writer = self._build_writer(
+            result_path=result_path,
             width=read_w,
             height=read_h,
             level_downsample=level_downsample,
-            channels=3,
-            tile_size=self.config.tile_size,
-            overwrite=True,
-            pyramid_levels=self.config.pyramid_levels,
         )
 
         run_start = time.time()
@@ -207,6 +205,34 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             raise ValueError("tile_size must be > 0")
         if self.config.pyramid_levels < 0:
             raise ValueError("pyramid_levels must be >= 0")
+        if self.config.blend_margin is not None and self.config.blend_margin < 0:
+            raise ValueError("blend_margin must be >= 0")
+
+    def _build_writer(
+        self,
+        result_path: Path,
+        width: int,
+        height: int,
+        level_downsample: float,
+    ) -> MultiZarrWSIWriter:
+        writer_class = (
+            BlendedMultiZarrWSIWriter
+            if self.config.overlap_blending
+            else MultiZarrWSIWriter
+        )
+        kwargs = {
+            "output_path": result_path,
+            "width": width,
+            "height": height,
+            "level_downsample": level_downsample,
+            "channels": 3,
+            "tile_size": self.config.tile_size,
+            "overwrite": True,
+            "pyramid_levels": self.config.pyramid_levels,
+        }
+        if writer_class is BlendedMultiZarrWSIWriter:
+            kwargs["blend_margin"] = self.config.blend_margin
+        return writer_class(**kwargs)
 
     def _load_model(self) -> ResnetGenerator:
         checkpoint_path = self._resolve_checkpoint_path()
@@ -433,6 +459,7 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         self._log(f"  batch_size={self.config.batch_size}")
         self._log(f"  tile_size={self.config.tile_size}")
         self._log(f"  pyramid_levels={self.config.pyramid_levels}")
+        self._log(f"  overlap_blending={self.config.overlap_blending}")
         self._log(f"  device={self.device}")
         self._log(f"  compute_ssim={self.config.compute_ssim}")
         self._log(f"  level_dimensions={wsi_handle.level_dimensions}")

@@ -25,15 +25,19 @@ def _relative_to_data_dir(path: Path) -> Path:
 
 
 def _find_target_image_path() -> Path:
-    candidates = sorted(
-        path
-        for path in TARGET_DIR.iterdir()
-        if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-    )
+    candidates = _find_target_image_paths()
     if not candidates:
         raise FileNotFoundError(f"No target image found in: {TARGET_DIR}")
 
     return candidates[0]
+
+
+def _find_target_image_paths() -> list[Path]:
+    return sorted(
+        path
+        for path in TARGET_DIR.iterdir()
+        if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+    )
 
 
 def ensure_target_image() -> str:
@@ -115,6 +119,14 @@ def ensure_target_image() -> str:
 def get_target_image_path(thumbnail: bool = False) -> str:
     ensure_target_image()
     return get_image_path(TARGET_IMAGE_ID, thumbnail=thumbnail)
+
+
+def get_target_image_paths() -> list[str]:
+    target_paths = _find_target_image_paths()
+    if not target_paths:
+        raise FileNotFoundError(f"No target image found in: {TARGET_DIR}")
+    ensure_target_image()
+    return [str(path) for path in target_paths]
 
 
 # 업로드된 파일을 data/uploads에 저장하고 image_id를 반환

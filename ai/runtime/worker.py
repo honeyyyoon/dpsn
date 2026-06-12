@@ -54,6 +54,9 @@ class Worker:
         device: str | None = None,
     ) -> TaskResult:
         evaluation_samples = self._sample_for_evaluation(task, emit_event)
+        pipeline_target_img_path = task.target_img_path
+        if pipeline_target_img_path is None and task.target_img_paths:
+            pipeline_target_img_path = Path(task.target_img_paths[0])
 
         device_message = f" on {device}" if device else ""
         emit_event(
@@ -65,7 +68,7 @@ class Worker:
         pipeline_result = pipeline.run(
             task.src_img_path, 
             task.result_path,
-            task.target_img_path,
+            pipeline_target_img_path,
             ["ssim", "psnr"],
             emit_event=emit_event
         )
@@ -97,16 +100,20 @@ class Worker:
         task: Task,
         emit_event,
     ) -> EvaluationSamples | None:
-        if task.target_img_path is None:
+        target_img_paths = task.target_img_paths
+        if target_img_paths is None and task.target_img_path is not None:
+            target_img_paths = (task.target_img_path,)
+
+        if not target_img_paths:
             return None
 
         emit_event(
             status="running",
             progress=1,
-            message="Sampling fixed evaluation patches.",
+            message=f"Sampling fixed evaluation patches from {len(target_img_paths)} target image(s).",
         )
         sampler = EvaluationSampler()
-        return sampler.sample(task.src_img_path, task.target_img_path)
+        return sampler.sample(task.src_img_path, target_img_paths)
 
     def _evaluate_sampled_metrics(
         self,

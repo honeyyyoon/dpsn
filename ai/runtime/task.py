@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 
 @dataclass
 class Metrics:
@@ -15,6 +16,7 @@ class Task:
     target_img_path: Path | None
     result_path: Path
     model_id: int 
+    target_img_paths: Sequence[Path] | None = None
 
 @dataclass
 class TaskResult:

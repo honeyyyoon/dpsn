@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
 import pickle
@@ -21,6 +22,7 @@ from ai.metrics.metric import Metric
 from ai.models.multistain.networks import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
+from ai.pipelines.target_utils import load_grid_target_patches
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
@@ -74,20 +76,18 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         self,
         src_img_path: Path,
         result_path: Path,
-        target_img_path: Path | None = None,
+        target_img_path: Path | Sequence[Path] | None = None,
         metrics: list[str] = [],
         emit_event=None,
     ) -> PipelineResult:
         self._emit_progress(emit_event, 1, "Preparing MultiStain-CycleGAN inference.")
 
         tgt_images = None
-        if "fid" in metrics:
+        if "fid" in metrics or "gaussian_color_dist" in metrics:
             if target_img_path is None:
-                raise ValueError("FID needs target image")
+                raise ValueError("Target-dependent metrics need target image")
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
-            tgt_wsi_handle = open_wsi_handle(target_img_path)
-            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
-            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            tgt_images = load_grid_target_patches(target_img_path, self.grid_sampler)
             self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
@@ -132,6 +132,7 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
+            use_gaussian_color_dist="gaussian_color_dist" in metrics,
             target_patch=tgt_images,
         )
         self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -25,7 +26,7 @@ class EvaluationSamples:
     target_refs: tuple[PatchRef, ...]
     source_dimensions: tuple[int, int]
     source_read_level: int
-    target_read_level: int
+    target_read_levels: tuple[int, ...]
 
 
 class EvaluationSampler:
@@ -59,28 +60,42 @@ class EvaluationSampler:
     def sample(
         self,
         source_img_path: Path,
-        target_img_path: Path,
+        target_img_path: Path | Sequence[Path],
     ) -> EvaluationSamples:
+        target_img_paths = self._as_path_tuple(target_img_path)
+        if not target_img_paths:
+            raise EvaluationSamplerError("At least one target image is required.")
+
         source_handle = open_wsi_handle(source_img_path)
-        target_handle = open_wsi_handle(target_img_path)
+        target_handles = [open_wsi_handle(path) for path in target_img_paths]
 
         source_level = self._select_source_read_level(source_handle)
-        target_level = self._select_matching_target_read_level(
-            source_handle=source_handle,
-            target_handle=target_handle,
-            source_level=source_level,
-        )
-
         source_refs = self._sample_refs(
             source_handle,
             read_level=source_level,
             max_patches=self.max_source_patches,
         )
-        target_refs = self._sample_refs(
-            target_handle,
-            read_level=target_level,
-            max_patches=self.max_target_patches,
-        )
+
+        target_levels: list[int] = []
+        target_refs: list[PatchRef] = []
+        per_target_limit = max(1, math.ceil(self.max_target_patches / len(target_handles)))
+        for target_handle in target_handles:
+            target_level = self._select_matching_target_read_level(
+                source_handle=source_handle,
+                target_handle=target_handle,
+                source_level=source_level,
+            )
+            target_levels.append(target_level)
+            remaining = self.max_target_patches - len(target_refs)
+            if remaining <= 0:
+                break
+            target_refs.extend(
+                self._sample_refs(
+                    target_handle,
+                    read_level=target_level,
+                    max_patches=min(per_target_limit, remaining),
+                )
+            )
 
         return EvaluationSamples(
             source_patches=self._load_refs(source_refs),
@@ -89,7 +104,7 @@ class EvaluationSampler:
             target_refs=tuple(target_refs),
             source_dimensions=source_handle.dim,
             source_read_level=source_level,
-            target_read_level=target_level,
+            target_read_levels=tuple(target_levels),
         )
 
     def load_output_patches(
@@ -197,6 +212,11 @@ class EvaluationSampler:
 
     def _load_refs(self, refs: list[PatchRef]) -> np.ndarray:
         return np.stack([load_patch(ref).img for ref in refs], axis=0)
+
+    def _as_path_tuple(self, path_or_paths: Path | Sequence[Path]) -> tuple[Path, ...]:
+        if isinstance(path_or_paths, Path):
+            return (path_or_paths,)
+        return tuple(Path(path) for path in path_or_paths)
 
     def _resize_chw(self, patch: np.ndarray, height: int, width: int) -> np.ndarray:
         if patch.shape[1] == height and patch.shape[2] == width:

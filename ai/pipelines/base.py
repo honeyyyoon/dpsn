@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 import logging
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class ModelPipeline(ABC):
         self, 
         src_img_path: Path,
         result_path: Path,
-        target_img_path: Path | None,
+        target_img_path: Path | Sequence[Path] | None,
         metrics: list[str],
         emit_event=None
     ) -> PipelineResult: ...

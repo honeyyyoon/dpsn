@@ -38,9 +38,7 @@ class EvaluationSampler:
         max_source_patches: int = 64,
         max_target_patches: int = 512,
         seed: int = 0,
-        training_tissue_threshold: float = 0.5,
-        quality_tissue_threshold: float = 0.2,
-        max_black_fraction: float = 0.1,
+        training_tissue_threshold: float = 0.3,
     ) -> None:
         if patch_size <= 0:
             raise ValueError(f"patch_size는 0보다 커야 합니다. 입력값: {patch_size}")
@@ -58,8 +56,6 @@ class EvaluationSampler:
         self.max_target_patches = int(max_target_patches)
         self.seed = int(seed)
         self.training_tissue_threshold = float(training_tissue_threshold)
-        self.quality_tissue_threshold = float(quality_tissue_threshold)
-        self.max_black_fraction = float(max_black_fraction)
 
     def sample(
         self,
@@ -69,10 +65,6 @@ class EvaluationSampler:
         target_img_paths = self._as_path_tuple(target_img_path)
         if not target_img_paths:
             raise EvaluationSamplerError("At least one target image is required.")
-        if not 0.0 <= self.quality_tissue_threshold <= 1.0:
-            raise ValueError("quality_tissue_threshold must be between 0 and 1.")
-        if not 0.0 <= self.max_black_fraction <= 1.0:
-            raise ValueError("max_black_fraction must be between 0 and 1.")
 
         source_handle = open_wsi_handle(source_img_path)
         target_handles = [open_wsi_handle(path) for path in target_img_paths]
@@ -187,21 +179,13 @@ class EvaluationSampler:
             training_tissue_threshold=self.training_tissue_threshold,
             strict_mpp_check=False,
         )
-        candidate_limit = max_patches * 3
-        candidate_refs = sampler.sample(
+        return sampler.sample(
             wsi_handle,
             mode="training",
-            max_patches=candidate_limit,
+            max_patches=max_patches,
             seed=self.seed,
             save_debug=False,
         )
-        filtered_refs = [
-            ref for ref in candidate_refs
-            if self._is_quality_metric_patch(load_patch(ref).img)
-        ]
-        if not filtered_refs:
-            return candidate_refs[:max_patches]
-        return filtered_refs[:max_patches]
 
     def _source_ref_to_output_ref(
         self,
@@ -228,24 +212,6 @@ class EvaluationSampler:
 
     def _load_refs(self, refs: list[PatchRef]) -> np.ndarray:
         return np.stack([load_patch(ref).img for ref in refs], axis=0)
-
-    def _is_quality_metric_patch(self, patch: np.ndarray) -> bool:
-        rgb = np.transpose(patch, (1, 2, 0)).astype(np.float32) / 255.0
-        max_rgb = rgb.max(axis=2)
-        min_rgb = rgb.min(axis=2)
-        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
-
-        black_fraction = float((max_rgb < 0.06).mean())
-        tissue = (
-            (max_rgb > 0.08)
-            & (max_rgb < 0.92)
-            & (saturation > 0.05)
-        )
-        tissue_fraction = float(tissue.mean())
-        return (
-            black_fraction <= self.max_black_fraction
-            and tissue_fraction >= self.quality_tissue_threshold
-        )
 
     def _as_path_tuple(self, path_or_paths: Path | Sequence[Path]) -> tuple[Path, ...]:
         if isinstance(path_or_paths, Path):

@@ -13,7 +13,7 @@ export const MODELS: ModelUi[] = [
 export const METRIC_DEFS: MetricDef[] = [
   { key: 'psnr', label: 'PSNR',  unit: 'dB', higherBetter: true,  desc: 'Peak signal-to-noise ratio', ref: 22   },
   { key: 'ssim', label: 'SSIM',  unit: '',   higherBetter: true,  desc: 'Structural similarity',       ref: 0.90, precision: 3 },
-  { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance',  ref: 60   },
+  { key: 'fid',  label: 'FID',   unit: '',   higherBetter: false, desc: 'Fréchet inception distance',  ref: 20   },
   { key: 'gaussian_color_dist', label: 'ColorDist', unit: '', higherBetter: false, desc: 'K=3 circular HSV GMM distance to target', ref: 0.50, precision: 3 },
   { key: 'gaussian_color_gain', label: 'ColorGain', unit: '', higherBetter: true, desc: 'ColorDist(A,T) - ColorDist(NA,T)', ref: 0, precision: 3 },
 ];

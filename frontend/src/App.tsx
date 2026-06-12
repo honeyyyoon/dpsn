@@ -766,6 +766,7 @@ export default function App() {
         onJobTerminate={handleJobTerminate}
         onAddModels={(job) => setAddModelJob(job)}
         onDownloadAll={handleDownloadAll}
+        onReset={reset}
       />
       <div
         ref={sbHandleRef}

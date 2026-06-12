@@ -75,6 +75,8 @@ class MultiDomainWSIPatchDataset(Dataset):
         read_level: int = 0,
         patches_per_source_slide: int = 128,
         mask_longest_side: int = 1024,
+        min_tissue_fraction: float = 0.2,
+        max_black_fraction: float = 0.1,
         strict_mpp_check: bool = True,
         recursive: bool = False,
         seed: int = 0,
@@ -91,6 +93,8 @@ class MultiDomainWSIPatchDataset(Dataset):
         self.read_level = int(read_level)
         self.patches_per_source_slide = int(patches_per_source_slide)
         self.mask_longest_side = int(mask_longest_side)
+        self.min_tissue_fraction = float(min_tissue_fraction)
+        self.max_black_fraction = float(max_black_fraction)
         self.strict_mpp_check = bool(strict_mpp_check)
         self.recursive = bool(recursive)
         self.seed = int(seed)
@@ -111,6 +115,10 @@ class MultiDomainWSIPatchDataset(Dataset):
             )
         if self.mask_longest_side <= 0:
             raise ValueError(f"mask_longest_side must be > 0, got {self.mask_longest_side}")
+        if not 0.0 <= self.min_tissue_fraction <= 1.0:
+            raise ValueError("min_tissue_fraction must be between 0 and 1.")
+        if not 0.0 <= self.max_black_fraction <= 1.0:
+            raise ValueError("max_black_fraction must be between 0 and 1.")
 
         self.records_by_sample = self._discover_records()
         self._log(
@@ -191,6 +199,7 @@ class MultiDomainWSIPatchDataset(Dataset):
                     handle=handle,
                     seed=self.seed + len(self.source_items),
                 )
+                refs = self._filter_quality_refs(refs)
                 if not refs:
                     self._log(
                         f"  skipped {record.path.name}: no tissue patches found after retries"
@@ -316,6 +325,33 @@ class MultiDomainWSIPatchDataset(Dataset):
             self._log(f"  final sampling failure: {last_error}")
         return []
 
+    def _filter_quality_refs(self, refs: list[PatchRef]) -> list[PatchRef]:
+        filtered = [
+            ref for ref in refs
+            if self._is_quality_patch(load_patch(ref).img)
+        ]
+        if filtered:
+            return filtered
+        return refs
+
+    def _is_quality_patch(self, patch: np.ndarray) -> bool:
+        rgb = np.transpose(patch, (1, 2, 0)).astype(np.float32) / 255.0
+        max_rgb = rgb.max(axis=2)
+        min_rgb = rgb.min(axis=2)
+        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
+        black_fraction = float((max_rgb < 0.06).mean())
+        tissue_fraction = float(
+            (
+                (max_rgb > 0.08)
+                & (max_rgb < 0.95)
+                & (saturation > 0.04)
+            ).mean()
+        )
+        return (
+            tissue_fraction >= self.min_tissue_fraction
+            and black_fraction <= self.max_black_fraction
+        )
+
     def _cache_path(self) -> Path | None:
         if self.cache_dir is None:
             return None
@@ -329,6 +365,8 @@ class MultiDomainWSIPatchDataset(Dataset):
             "read_level": self.read_level,
             "patches_per_source_slide": self.patches_per_source_slide,
             "mask_longest_side": self.mask_longest_side,
+            "min_tissue_fraction": self.min_tissue_fraction,
+            "max_black_fraction": self.max_black_fraction,
             "recursive": self.recursive,
             "seed": self.seed,
             "scanner_mpp": self.scanner_mpp,

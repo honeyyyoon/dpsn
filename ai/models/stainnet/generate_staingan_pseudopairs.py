@@ -60,6 +60,8 @@ def build_dataset(
         target_mpp=args.target_mpp,
         read_level=args.read_level,
         patches_per_source_slide=patches_per_source_slide,
+        min_tissue_fraction=args.min_tissue_fraction,
+        max_black_fraction=args.max_black_fraction,
         mask_longest_side=args.mask_longest_side,
         strict_mpp_check=args.strict_mpp_check,
         recursive=args.recursive,
@@ -119,13 +121,19 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--staingan-checkpoint-path", type=Path, default=None)
-    parser.add_argument("--staingan-checkpoint-dir", type=Path, default=None)
+    parser.add_argument(
+        "--staingan-checkpoint-dir",
+        type=Path,
+        default=Path("/mnt/Disk1/dpsn_outputs/checkpoints/staingan"),
+    )
     parser.add_argument("--canonical-domain", type=str, default="nz210")
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--target-mpp", type=float, default=0.25)
     parser.add_argument("--read-level", type=int, default=0)
-    parser.add_argument("--patches-per-source-slide", type=int, default=128)
-    parser.add_argument("--val-patches-per-source-slide", type=int, default=32)
+    parser.add_argument("--patches-per-source-slide", type=int, default=256)
+    parser.add_argument("--val-patches-per-source-slide", type=int, default=64)
+    parser.add_argument("--min-tissue-fraction", type=float, default=0.2)
+    parser.add_argument("--max-black-fraction", type=float, default=0.1)
     parser.add_argument("--mask-longest-side", type=int, default=1024)
     parser.add_argument(
         "--patch-cache-dir",
@@ -177,11 +185,7 @@ def main() -> None:
 
     staingan_config = StainGANInferenceConfig(
         checkpoint_path=args.staingan_checkpoint_path,
-        checkpoint_dir=(
-            args.staingan_checkpoint_dir
-            if args.staingan_checkpoint_dir is not None
-            else StainGANInferenceConfig.checkpoint_dir
-        ),
+        checkpoint_dir=args.staingan_checkpoint_dir,
         patch_size=args.image_size,
         stride=args.image_size,
         batch_size=args.batch_size,

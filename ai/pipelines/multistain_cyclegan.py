@@ -12,6 +12,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+try:
+    from scipy import ndimage as ndi
+except ImportError:
+    ndi = None
+
 from ai.metrics.metric import Metric
 from ai.models.multistain.networks import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
@@ -43,6 +48,7 @@ class MultiStainCycleGANInferenceConfig:
     verbose: bool = True
     log_every_batches: int = 5
     compute_ssim: bool = True
+    preserve_background: bool = True
 
 
 class MultiStainCycleGANPipeline(ModelPipeline):
@@ -374,7 +380,36 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         output = torch.clamp(output, 0.0, 1.0)
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8)
+        if self.config.preserve_background:
+            output_np = self._preserve_background(batch.astype(np.uint8), output_np)
         return [output_np[i] for i in range(output_np.shape[0])]
+
+    def _preserve_background(
+        self,
+        source_batch: np.ndarray,
+        output_batch: np.ndarray,
+    ) -> np.ndarray:
+        source_rgb = source_batch.astype(np.float32) / 255.0
+        max_rgb = source_rgb.max(axis=1)
+        min_rgb = source_rgb.min(axis=1)
+        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
+        tissue_mask = (max_rgb > 0.08) & (max_rgb < 0.92) & (saturation > 0.04)
+
+        if ndi is not None:
+            soft_masks = []
+            for mask in tissue_mask:
+                expanded = ndi.binary_dilation(mask, iterations=8)
+                soft = ndi.gaussian_filter(expanded.astype(np.float32), sigma=3.0)
+                soft_masks.append(np.clip(soft, 0.0, 1.0))
+            alpha = np.stack(soft_masks, axis=0)[:, None, :, :]
+        else:
+            alpha = tissue_mask.astype(np.float32)[:, None, :, :]
+
+        blended = (
+            alpha * output_batch.astype(np.float32)
+            + (1.0 - alpha) * source_batch.astype(np.float32)
+        )
+        return np.rint(blended).clip(0, 255).astype(np.uint8)
 
     def _log_run_summary(
         self,

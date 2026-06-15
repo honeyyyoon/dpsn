@@ -568,6 +568,21 @@ def train(config: StainGANTrainingConfig) -> Path:
             f"Resumed StainGAN from {resume_checkpoint} at epoch {start_epoch}; "
             f"continuing to {config.total_epochs}."
         )
+        if not best_checkpoint_path.is_file():
+            save_checkpoint(
+                config=config,
+                epoch=start_epoch,
+                generator=generator,
+                discriminator=discriminator,
+                optimizer_g=optimizer_g,
+                optimizer_d=optimizer_d,
+                path=best_checkpoint_path,
+                val_generator_loss=best_val_g,
+            )
+            print(
+                f"Seeded best checkpoint from resumed model: {best_checkpoint_path} "
+                f"val_g={best_val_g:.6f}"
+            )
     else:
         print("Starting StainGAN from scratch.")
 
@@ -654,7 +669,7 @@ def train(config: StainGANTrainingConfig) -> Path:
             )
             print(f"Updated best checkpoint: {best_checkpoint_path} val_g={best_val_g:.6f}")
 
-    return best_checkpoint_path
+    return best_checkpoint_path if best_checkpoint_path.is_file() else latest_checkpoint_path
 
 
 def build_argparser() -> argparse.ArgumentParser:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
 import pickle
@@ -15,6 +16,7 @@ from ai.metrics.metric import Metric
 from ai.models.stainswin.stainswin_model import StainSWIN as StainSWINModel
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
+from ai.pipelines.target_utils import load_grid_target_patches
 from ai.samplers.grid_sampler import GridSampler
 from ai.samplers.patch_sampler import PatchSampler
 from ai.wsi.handle import WSIHandle
@@ -122,7 +124,7 @@ class StainSWINPipeline(ModelPipeline):
         self,
         src_img_path: Path,
         result_path: Path,
-        target_img_path: Path | None = None,
+        target_img_path: Path | Sequence[Path] | None = None,
         metrics: list[str] = [],
         emit_event = None
     ) -> PipelineResult:
@@ -135,9 +137,7 @@ class StainSWINPipeline(ModelPipeline):
                     "FID를 계산하려면 타겟 이미지가 필요합니다."
                 )
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
-            tgt_wsi_handle = open_wsi_handle(target_img_path)
-            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
-            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            tgt_images = load_grid_target_patches(target_img_path, self.grid_sampler)
             self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
         del target_img_path
 

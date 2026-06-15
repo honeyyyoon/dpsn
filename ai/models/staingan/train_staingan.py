@@ -49,7 +49,7 @@ from ai.models.staingan.staingan_model import (
 
 
 DEFAULT_MULTISCANNER_DIR = Path("/mnt/Disk1/dpsn_datasets/multiscanner_dataset")
-DEFAULT_CHECKPOINTS_DIR = Path(__file__).resolve().parents[2] / "checkpoints" / "staingan"
+DEFAULT_CHECKPOINTS_DIR = Path("/mnt/Disk1/dpsn_outputs/checkpoints/staingan")
 
 
 @dataclass(slots=True)
@@ -61,8 +61,10 @@ class StainGANTrainingConfig:
     image_size: int = 256
     target_mpp: float = 0.25
     read_level: int = 0
-    patches_per_source_slide: int = 128
+    patches_per_source_slide: int = 256
     mask_longest_side: int = 1024
+    min_tissue_fraction: float = 0.2
+    max_black_fraction: float = 0.1
     patch_cache_dir: Path = Path("/mnt/Disk1/dpsn_patch_cache/staingan_patch_cache")
     use_patch_cache: bool = True
     train_sample_count: int = 36
@@ -89,6 +91,9 @@ class StainGANTrainingConfig:
     strict_mpp_check: bool = True
     verbose: bool = False
     gpu_ids: tuple[int, ...] = (1, 2, 3)
+    save_every_epochs: int = 2
+    auto_resume: bool = True
+    resume_checkpoint: Path | None = None
 
     @property
     def total_epochs(self) -> int:
@@ -143,6 +148,8 @@ def create_datasets(
         read_level=config.read_level,
         patches_per_source_slide=config.patches_per_source_slide,
         mask_longest_side=config.mask_longest_side,
+        min_tissue_fraction=config.min_tissue_fraction,
+        max_black_fraction=config.max_black_fraction,
         strict_mpp_check=config.strict_mpp_check,
         recursive=config.recursive,
         seed=config.split_seed,
@@ -165,6 +172,8 @@ def create_datasets(
         read_level=config.read_level,
         patches_per_source_slide=max(1, config.patches_per_source_slide // 4),
         mask_longest_side=config.mask_longest_side,
+        min_tissue_fraction=config.min_tissue_fraction,
+        max_black_fraction=config.max_black_fraction,
         strict_mpp_check=config.strict_mpp_check,
         recursive=config.recursive,
         seed=config.split_seed + 10_000,
@@ -267,6 +276,47 @@ def save_checkpoint(
         },
         path,
     )
+
+
+def resolve_resume_checkpoint(config: StainGANTrainingConfig) -> Path | None:
+    if config.resume_checkpoint is not None:
+        if not config.resume_checkpoint.is_file():
+            raise FileNotFoundError(
+                f"resume checkpoint not found: {config.resume_checkpoint}"
+            )
+        return config.resume_checkpoint
+    if not config.auto_resume:
+        return None
+    candidates = [
+        config.checkpoints_dir / f"{config.experiment_name}_latest.pth",
+        config.checkpoints_dir / f"{config.experiment_name}_best.pth",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def load_training_checkpoint(
+    path: Path,
+    generator: nn.Module,
+    discriminator: nn.Module,
+    optimizer_g: torch.optim.Optimizer,
+    optimizer_d: torch.optim.Optimizer,
+    device: torch.device,
+) -> tuple[int, float]:
+    checkpoint = torch.load(path, map_location=device)
+    unwrap_parallel(generator).load_state_dict(
+        checkpoint["g_source_to_canonical_state_dict"]
+    )
+    unwrap_parallel(discriminator).load_state_dict(checkpoint["d_canonical_state_dict"])
+    if "optimizer_g_state_dict" in checkpoint:
+        optimizer_g.load_state_dict(checkpoint["optimizer_g_state_dict"])
+    if "optimizer_d_state_dict" in checkpoint:
+        optimizer_d.load_state_dict(checkpoint["optimizer_d_state_dict"])
+    start_epoch = int(checkpoint.get("epoch", 0))
+    best_val_g = float(checkpoint.get("val_generator_loss", float("inf")))
+    return start_epoch, best_val_g
 
 
 def maybe_wrap_dataparallel(
@@ -499,8 +549,51 @@ def train(config: StainGANTrainingConfig) -> Path:
     latest_checkpoint_path = config.checkpoints_dir / f"{config.experiment_name}_latest.pth"
     best_checkpoint_path = config.checkpoints_dir / f"{config.experiment_name}_best.pth"
     best_val_g = float("inf")
+    start_epoch = 0
 
-    for epoch in range(1, config.total_epochs + 1):
+    resume_checkpoint = resolve_resume_checkpoint(config)
+    if resume_checkpoint is not None:
+        start_epoch, best_val_g = load_training_checkpoint(
+            path=resume_checkpoint,
+            generator=generator,
+            discriminator=discriminator,
+            optimizer_g=optimizer_g,
+            optimizer_d=optimizer_d,
+            device=device,
+        )
+        for _ in range(start_epoch):
+            scheduler_g.step()
+            scheduler_d.step()
+        print(
+            f"Resumed StainGAN from {resume_checkpoint} at epoch {start_epoch}; "
+            f"continuing to {config.total_epochs}."
+        )
+        if not best_checkpoint_path.is_file():
+            save_checkpoint(
+                config=config,
+                epoch=start_epoch,
+                generator=generator,
+                discriminator=discriminator,
+                optimizer_g=optimizer_g,
+                optimizer_d=optimizer_d,
+                path=best_checkpoint_path,
+                val_generator_loss=best_val_g,
+            )
+            print(
+                f"Seeded best checkpoint from resumed model: {best_checkpoint_path} "
+                f"val_g={best_val_g:.6f}"
+            )
+    else:
+        print("Starting StainGAN from scratch.")
+
+    if start_epoch >= config.total_epochs:
+        print(
+            f"Checkpoint is already at epoch {start_epoch}; "
+            f"requested total_epochs={config.total_epochs}."
+        )
+        return best_checkpoint_path if best_checkpoint_path.is_file() else latest_checkpoint_path
+
+    for epoch in range(start_epoch + 1, config.total_epochs + 1):
         train_losses = train_one_epoch(
             config=config,
             dataloader=train_loader,
@@ -538,19 +631,20 @@ def train(config: StainGANTrainingConfig) -> Path:
             f"val_content={val_losses['content']:.6f}"
         )
 
-        epoch_checkpoint_path = (
-            config.checkpoints_dir / f"{config.experiment_name}_epoch_{epoch:04d}.pth"
-        )
-        save_checkpoint(
-            config=config,
-            epoch=epoch,
-            generator=generator,
-            discriminator=discriminator,
-            optimizer_g=optimizer_g,
-            optimizer_d=optimizer_d,
-            path=epoch_checkpoint_path,
-            val_generator_loss=val_losses["g"],
-        )
+        if epoch % config.save_every_epochs == 0 or epoch == config.total_epochs:
+            epoch_checkpoint_path = (
+                config.checkpoints_dir / f"{config.experiment_name}_epoch_{epoch:04d}.pth"
+            )
+            save_checkpoint(
+                config=config,
+                epoch=epoch,
+                generator=generator,
+                discriminator=discriminator,
+                optimizer_g=optimizer_g,
+                optimizer_d=optimizer_d,
+                path=epoch_checkpoint_path,
+                val_generator_loss=val_losses["g"],
+            )
         save_checkpoint(
             config=config,
             epoch=epoch,
@@ -575,7 +669,7 @@ def train(config: StainGANTrainingConfig) -> Path:
             )
             print(f"Updated best checkpoint: {best_checkpoint_path} val_g={best_val_g:.6f}")
 
-    return best_checkpoint_path
+    return best_checkpoint_path if best_checkpoint_path.is_file() else latest_checkpoint_path
 
 
 def build_argparser() -> argparse.ArgumentParser:
@@ -589,7 +683,9 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--target-mpp", type=float, default=0.25)
     parser.add_argument("--read-level", type=int, default=0)
-    parser.add_argument("--patches-per-source-slide", type=int, default=128)
+    parser.add_argument("--patches-per-source-slide", type=int, default=256)
+    parser.add_argument("--min-tissue-fraction", type=float, default=0.2)
+    parser.add_argument("--max-black-fraction", type=float, default=0.1)
     parser.add_argument("--mask-longest-side", type=int, default=1024)
     parser.add_argument("--patch-cache-dir", type=Path, default=Path("/mnt/Disk1/dpsn_patch_cache/staingan_patch_cache"),)
     parser.add_argument("--use-patch-cache", action=argparse.BooleanOptionalAction, default=True)
@@ -619,6 +715,9 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--strict-mpp-check", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--gpu-ids", type=int, nargs="+", default=[1, 2, 3])
+    parser.add_argument("--save-every-epochs", type=int, default=2)
+    parser.add_argument("--auto-resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--resume-checkpoint", type=Path, default=None)
     return parser
 
 
@@ -633,6 +732,8 @@ def main() -> None:
         target_mpp=args.target_mpp,
         read_level=args.read_level,
         patches_per_source_slide=args.patches_per_source_slide,
+        min_tissue_fraction=args.min_tissue_fraction,
+        max_black_fraction=args.max_black_fraction,
         mask_longest_side=args.mask_longest_side,
         patch_cache_dir=args.patch_cache_dir,
         use_patch_cache=args.use_patch_cache,
@@ -658,6 +759,9 @@ def main() -> None:
         strict_mpp_check=args.strict_mpp_check,
         verbose=args.verbose,
         gpu_ids=tuple(args.gpu_ids),
+        save_every_epochs=args.save_every_epochs,
+        auto_resume=args.auto_resume,
+        resume_checkpoint=args.resume_checkpoint,
     )
     checkpoint_path = train(config)
     print(f"Saved best checkpoint to {checkpoint_path}")

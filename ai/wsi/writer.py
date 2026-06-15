@@ -304,3 +304,159 @@ class MultiZarrWSIWriter(PatchWriter):
         raise AttributeError(
             "Zarr group이 create_array 또는 create_dataset을 지원하지 않습니다."
         )
+
+
+class BlendedMultiZarrWSIWriter(MultiZarrWSIWriter):
+    """MultiZarr writer that blends overlapping inference patches smoothly."""
+
+    def __init__(
+        self,
+        output_path: str | Path,
+        width: int,
+        height: int,
+        level_downsample: float,
+        channels: int = 3,
+        tile_size: int = 512,
+        overwrite: bool = True,
+        pyramid_levels: int = 3,
+        write_levels: tuple[int, ...] = (0,),
+        blend_margin: int | None = None,
+        min_weight: float = 0.05,
+    ) -> None:
+        super().__init__(
+            output_path=output_path,
+            width=width,
+            height=height,
+            level_downsample=level_downsample,
+            channels=channels,
+            tile_size=tile_size,
+            overwrite=overwrite,
+            pyramid_levels=pyramid_levels,
+            write_levels=write_levels,
+        )
+        if min_weight <= 0 or min_weight > 1:
+            raise ValueError(f"min_weight는 (0, 1] 범위여야 합니다. 입력값: {min_weight}")
+
+        self.blend_margin = blend_margin
+        self.min_weight = float(min_weight)
+        self.image_sum = self._create_zarr_float_image("image_sum")
+        self.weight_sum = self._create_zarr_weight_image("weight_sum")
+
+    def write_patch(self, ref: PatchRef, img: np.ndarray) -> None:
+        x1 = int(round(ref.x / self.level_downsample))
+        y1 = int(round(ref.y / self.level_downsample))
+        if x1 < 0 or y1 < 0:
+            raise ValueError(f"write 위치는 음수일 수 없습니다: {(x1, y1)}")
+
+        img_hwc = self._to_hwc_uint8(img)
+        patch_h, patch_w = img_hwc.shape[:2]
+        x2 = min(x1 + patch_w, self.width)
+        y2 = min(y1 + patch_h, self.height)
+        write_w = x2 - x1
+        write_h = y2 - y1
+        if write_w <= 0 or write_h <= 0:
+            return
+
+        weights = self._blend_weights(
+            write_h=write_h,
+            write_w=write_w,
+            touches_left=x1 == 0,
+            touches_top=y1 == 0,
+            touches_right=x2 == self.width,
+            touches_bottom=y2 == self.height,
+        )
+        patch = img_hwc[:write_h, :write_w, :].astype(np.float32)
+        image_sum = np.asarray(self.image_sum[y1:y2, x1:x2, :], dtype=np.float32)
+        weight_sum = np.asarray(self.weight_sum[y1:y2, x1:x2], dtype=np.float32)
+        self.image_sum[y1:y2, x1:x2, :] = image_sum + patch * weights[:, :, None]
+        self.weight_sum[y1:y2, x1:x2] = weight_sum + weights
+
+    def finalize(self) -> Path:
+        self._flush_blended_image()
+        return super().finalize()
+
+    def _flush_blended_image(self) -> None:
+        row_chunk = max(1, int(self.tile_size))
+        for y1 in range(0, self.height, row_chunk):
+            y2 = min(self.height, y1 + row_chunk)
+            image_sum = np.asarray(self.image_sum[y1:y2, :, :], dtype=np.float32)
+            weight_sum = np.asarray(self.weight_sum[y1:y2, :], dtype=np.float32)
+
+            empty = weight_sum <= 0
+            safe_weight = np.where(empty, 1.0, weight_sum)
+            image = image_sum / safe_weight[:, :, None]
+            image[empty, :] = 0
+            self.image[y1:y2, :, :] = np.rint(image).clip(0, 255).astype(np.uint8)
+
+    def _blend_weights(
+        self,
+        write_h: int,
+        write_w: int,
+        touches_left: bool,
+        touches_top: bool,
+        touches_right: bool,
+        touches_bottom: bool,
+    ) -> np.ndarray:
+        wy = self._axis_weights(write_h, touches_top, touches_bottom)
+        wx = self._axis_weights(write_w, touches_left, touches_right)
+        return np.outer(wy, wx).astype(np.float32)
+
+    def _axis_weights(
+        self,
+        length: int,
+        touches_start: bool,
+        touches_end: bool,
+    ) -> np.ndarray:
+        weights = np.ones(length, dtype=np.float32)
+        if length <= 1:
+            return weights
+
+        margin = self._effective_blend_margin(length)
+        if margin <= 0:
+            return weights
+
+        ramp = np.linspace(self.min_weight, 1.0, margin, dtype=np.float32)
+        if not touches_start:
+            weights[:margin] = np.minimum(weights[:margin], ramp)
+        if not touches_end:
+            weights[-margin:] = np.minimum(weights[-margin:], ramp[::-1])
+        return weights
+
+    def _effective_blend_margin(self, length: int) -> int:
+        if self.blend_margin is not None:
+            margin = int(self.blend_margin)
+        else:
+            margin = min(128, max(1, length // 4))
+        return max(0, min(margin, length // 2))
+
+    def _create_zarr_float_image(self, name: str):
+        kwargs = {
+            "name": name,
+            "shape": (self.height, self.width, self.channels),
+            "chunks": (self.tile_size, self.tile_size, self.channels),
+            "dtype": np.float32,
+            "fill_value": 0.0,
+        }
+        if hasattr(self.root, "create_array"):
+            return self.root.create_array(**kwargs)
+        if hasattr(self.root, "create_dataset"):
+            return self.root.create_dataset(**kwargs)
+        raise AttributeError(
+            "Zarr group이 create_array 또는 create_dataset을 지원하지 않습니다."
+        )
+
+    def _create_zarr_weight_image(self, name: str):
+        kwargs = {
+            "name": name,
+            "shape": (self.height, self.width),
+            "chunks": (self.tile_size, self.tile_size),
+            "dtype": np.float32,
+            "fill_value": 0.0,
+        }
+        if hasattr(self.root, "create_array"):
+            return self.root.create_array(**kwargs)
+        if hasattr(self.root, "create_dataset"):
+            return self.root.create_dataset(**kwargs)
+        raise AttributeError(
+            "Zarr group이 create_array 또는 create_dataset을 지원하지 않습니다."
+        )

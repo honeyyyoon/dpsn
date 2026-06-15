@@ -39,6 +39,7 @@ class MultiStainCycleGANConfig:
     checkpoints_dir: Path = DEFAULT_CHECKPOINTS_DIR
     patch_cache_dir: Path = DEFAULT_PATCH_CACHE_DIR
     experiment_name: str = "multistain_many_to_nz210"
+    resume_checkpoint: Path | None = None
 
     scanner_mpp: dict[str, float] = field(default_factory=lambda: dict(SCANNER_MPP))
     scanner_names: dict[str, str] = field(default_factory=lambda: dict(SCANNER_NAMES))
@@ -85,6 +86,8 @@ class MultiStainCycleGANConfig:
         self.dataset_dir = Path(self.dataset_dir)
         self.checkpoints_dir = Path(self.checkpoints_dir)
         self.patch_cache_dir = Path(self.patch_cache_dir)
+        if self.resume_checkpoint is not None:
+            self.resume_checkpoint = Path(self.resume_checkpoint)
 
         if self.target_mpp is None:
             self.target_mpp = self.scanner_mpp[self.canonical_domain]
@@ -109,8 +112,9 @@ class MultiStainCycleGANConfig:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        for key in ("dataset_dir", "checkpoints_dir", "patch_cache_dir"):
-            payload[key] = str(payload[key])
+        for key in ("dataset_dir", "checkpoints_dir", "patch_cache_dir", "resume_checkpoint"):
+            if payload[key] is not None:
+                payload[key] = str(payload[key])
         return payload
 
     def _validate(self) -> None:

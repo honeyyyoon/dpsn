@@ -25,6 +25,7 @@ DEFAULT_APERIO_DIR = Path(
 DEFAULT_HAMAMATSU_DIR = Path(
     "/mnt/Disk1/dpsn_datasets/mitos_atypia_2014_training_hamamatsu"
 )
+DEFAULT_CHECKPOINTS_DIR = Path("/mnt/Disk1/dpsn_outputs/checkpoints/stainnet")
 
 
 @dataclass(slots=True)
@@ -33,7 +34,7 @@ class StainNetTrainingConfig:
     train_target_dir: Path = DEFAULT_HAMAMATSU_DIR
     val_source_dir: Path | None = None
     val_target_dir: Path | None = None
-    checkpoints_dir: Path = Path("checkpoints")
+    checkpoints_dir: Path = DEFAULT_CHECKPOINTS_DIR
     image_size: int = 256
     input_nc: int = 3
     output_nc: int = 3
@@ -50,6 +51,12 @@ class StainNetTrainingConfig:
     source_prefix: str = "A"
     target_prefix: str = "H"
     gpu_ids: tuple[int, ...] = (1, 2, 3)
+    quality_filter: bool = True
+    min_tissue_fraction: float = 0.2
+    max_black_fraction: float = 0.1
+    save_every_epochs: int = 2
+    auto_resume: bool = True
+    resume_checkpoint: Path | None = None
 
 
 def create_model(config: StainNetTrainingConfig) -> StainNet:
@@ -73,6 +80,9 @@ def create_dataloader(
     recursive: bool,
     source_prefix: str,
     target_prefix: str,
+    quality_filter: bool,
+    min_tissue_fraction: float,
+    max_black_fraction: float,
 ) -> DataLoader:
     dataset = PairedAlignedImageDataset(
         source_dir=source_dir,
@@ -81,6 +91,9 @@ def create_dataloader(
         recursive=recursive,
         source_prefix=source_prefix,
         target_prefix=target_prefix,
+        quality_filter=quality_filter,
+        min_tissue_fraction=min_tissue_fraction,
+        max_black_fraction=max_black_fraction,
     )
     return DataLoader(
         dataset,
@@ -172,12 +185,16 @@ def save_checkpoint(
     epoch: int,
     optimizer: torch.optim.Optimizer,
     path: Path,
+    val_loss: float | None = None,
+    train_loss: float | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "epoch": epoch,
             "experiment_name": config.experiment_name,
+            "val_loss": val_loss,
+            "train_loss": train_loss,
             "model_state_dict": unwrap_parallel(model).state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "config": asdict(config),
@@ -186,8 +203,46 @@ def save_checkpoint(
     )
 
 
+def resolve_resume_checkpoint(config: StainNetTrainingConfig) -> Path | None:
+    if config.resume_checkpoint is not None:
+        if not config.resume_checkpoint.is_file():
+            raise FileNotFoundError(
+                f"resume checkpoint not found: {config.resume_checkpoint}"
+            )
+        return config.resume_checkpoint
+    if not config.auto_resume:
+        return None
+    candidates = [
+        config.checkpoints_dir / f"{config.experiment_name}_latest.pth",
+        config.checkpoints_dir / f"{config.experiment_name}_best.pth",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def load_training_checkpoint(
+    path: Path,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> tuple[int, float]:
+    checkpoint = torch.load(path, map_location=device)
+    unwrap_parallel(model).load_state_dict(checkpoint["model_state_dict"])
+    if "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    start_epoch = int(checkpoint.get("epoch", 0))
+    best_loss = checkpoint.get("val_loss")
+    if best_loss is None:
+        best_loss = checkpoint.get("train_loss", float("inf"))
+    return start_epoch, float(best_loss)
+
+
 def train(config: StainNetTrainingConfig) -> Path:
     device = select_device(config.device)
+    if config.save_every_epochs <= 0:
+        raise ValueError("save_every_epochs must be > 0.")
     train_loader = create_dataloader(
         source_dir=config.train_source_dir,
         target_dir=config.train_target_dir,
@@ -198,6 +253,9 @@ def train(config: StainNetTrainingConfig) -> Path:
         recursive=config.recursive,
         source_prefix=config.source_prefix,
         target_prefix=config.target_prefix,
+        quality_filter=config.quality_filter,
+        min_tissue_fraction=config.min_tissue_fraction,
+        max_black_fraction=config.max_black_fraction,
     )
 
     val_loader = None
@@ -212,6 +270,9 @@ def train(config: StainNetTrainingConfig) -> Path:
             recursive=config.recursive,
             source_prefix=config.source_prefix,
             target_prefix=config.target_prefix,
+            quality_filter=config.quality_filter,
+            min_tissue_fraction=config.min_tissue_fraction,
+            max_black_fraction=config.max_black_fraction,
         )
 
     model = create_model(config).to(device)
@@ -227,8 +288,35 @@ def train(config: StainNetTrainingConfig) -> Path:
     latest_checkpoint_path = (
         config.checkpoints_dir / f"{config.experiment_name}_latest.pth"
     )
+    best_checkpoint_path = config.checkpoints_dir / f"{config.experiment_name}_best.pth"
+    best_loss = float("inf")
 
-    for epoch in range(1, config.epochs + 1):
+    start_epoch = 0
+    resume_checkpoint = resolve_resume_checkpoint(config)
+    if resume_checkpoint is not None:
+        start_epoch, best_loss = load_training_checkpoint(
+            path=resume_checkpoint,
+            model=model,
+            optimizer=optimizer,
+            device=device,
+        )
+        for _ in range(start_epoch):
+            scheduler.step()
+        print(
+            f"Resumed StainNet from {resume_checkpoint} at epoch {start_epoch}; "
+            f"best_loss={best_loss:.6f}"
+        )
+    else:
+        print("Starting StainNet from scratch.")
+
+    if start_epoch >= config.epochs:
+        print(
+            f"Checkpoint is already at epoch {start_epoch}; "
+            f"requested epochs={config.epochs}."
+        )
+        return best_checkpoint_path if best_checkpoint_path.is_file() else latest_checkpoint_path
+
+    for epoch in range(start_epoch + 1, config.epochs + 1):
         train_loss = train_one_epoch(
             model=model,
             dataloader=train_loader,
@@ -252,18 +340,53 @@ def train(config: StainNetTrainingConfig) -> Path:
                 f"epoch {epoch}/{config.epochs} - train_l1={train_loss:.6f} val_l1={val_loss:.6f}"
             )
         else:
+            val_loss = None
             print(f"epoch {epoch}/{config.epochs} - train_l1={train_loss:.6f}")
 
         scheduler.step()
+        score_loss = val_loss if val_loss is not None else train_loss
+
+        if epoch % config.save_every_epochs == 0 or epoch == config.epochs:
+            epoch_checkpoint_path = (
+                config.checkpoints_dir
+                / f"{config.experiment_name}_epoch_{epoch:03d}.pth"
+            )
+            save_checkpoint(
+                model=model,
+                config=config,
+                epoch=epoch,
+                optimizer=optimizer,
+                path=epoch_checkpoint_path,
+                val_loss=val_loss,
+                train_loss=train_loss,
+            )
+
         save_checkpoint(
             model=model,
             config=config,
             epoch=epoch,
             optimizer=optimizer,
             path=latest_checkpoint_path,
+            val_loss=val_loss,
+            train_loss=train_loss,
         )
+        if score_loss < best_loss:
+            best_loss = score_loss
+            save_checkpoint(
+                model=model,
+                config=config,
+                epoch=epoch,
+                optimizer=optimizer,
+                path=best_checkpoint_path,
+                val_loss=val_loss,
+                train_loss=train_loss,
+            )
+            print(
+                f"Updated best checkpoint: {best_checkpoint_path} "
+                f"loss={best_loss:.6f}"
+            )
 
-    return latest_checkpoint_path
+    return best_checkpoint_path if best_checkpoint_path.is_file() else latest_checkpoint_path
 
 
 def select_device(device: str) -> torch.device:
@@ -309,7 +432,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--train-target-dir", "--gt-root-train", dest="train_target_dir", type=Path, default=DEFAULT_HAMAMATSU_DIR)
     parser.add_argument("--val-source-dir", "--source-root-test", dest="val_source_dir", type=Path, default=None)
     parser.add_argument("--val-target-dir", "--gt-root-test", dest="val_target_dir", type=Path, default=None)
-    parser.add_argument("--checkpoints-dir", type=Path, default=Path("checkpoints"))
+    parser.add_argument("--checkpoints-dir", type=Path, default=DEFAULT_CHECKPOINTS_DIR)
     parser.add_argument("--image-size", "--fineSize", dest="image_size", type=int, default=256)
     parser.add_argument("--batch-size", "--batchSize", dest="batch_size", type=int, default=8)
     parser.add_argument("--num-workers", "--nThreads", dest="num_workers", type=int, default=0)
@@ -326,6 +449,12 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--source-prefix", type=str, default="A")
     parser.add_argument("--target-prefix", type=str, default="H")
     parser.add_argument("--gpu-ids", type=int, nargs="+", default=[1, 2, 3])
+    parser.add_argument("--quality-filter", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--min-tissue-fraction", type=float, default=0.2)
+    parser.add_argument("--max-black-fraction", type=float, default=0.1)
+    parser.add_argument("--save-every-epochs", type=int, default=2)
+    parser.add_argument("--auto-resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--resume-checkpoint", type=Path, default=None)
     return parser
 
 
@@ -353,9 +482,15 @@ def main() -> None:
         source_prefix=args.source_prefix,
         target_prefix=args.target_prefix,
         gpu_ids=tuple(args.gpu_ids),
+        quality_filter=args.quality_filter,
+        min_tissue_fraction=args.min_tissue_fraction,
+        max_black_fraction=args.max_black_fraction,
+        save_every_epochs=args.save_every_epochs,
+        auto_resume=args.auto_resume,
+        resume_checkpoint=args.resume_checkpoint,
     )
     checkpoint_path = train(config)
-    print(f"Saved latest checkpoint to {checkpoint_path}")
+    print(f"Saved checkpoint to {checkpoint_path}")
 
 
 if __name__ == "__main__":

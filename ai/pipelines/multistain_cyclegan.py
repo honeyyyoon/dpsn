@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
 import pickle
@@ -10,15 +11,22 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+
+try:
+    from scipy import ndimage as ndi
+except ImportError:
+    ndi = None
 
 from ai.metrics.metric import Metric
 from ai.models.multistain.networks import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
+from ai.pipelines.target_utils import load_grid_target_patches
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import MultiZarrWSIWriter
+from ai.wsi.writer import BlendedMultiZarrWSIWriter, MultiZarrWSIWriter
 
 
 @dataclass(slots=True)
@@ -33,15 +41,18 @@ class MultiStainCycleGANInferenceConfig:
     generator_key: str = "net_g_source_to_target"
 
     patch_size: int = 512
-    stride: int = 512
+    stride: int = 256
     read_level: int = 0
     batch_size: int = 8
     tile_size: int = 512
     pyramid_levels: int = 3
+    overlap_blending: bool = True
+    blend_margin: int | None = None
     device: str = "auto"
     verbose: bool = True
     log_every_batches: int = 5
     compute_ssim: bool = True
+    preserve_background: bool = True
 
 
 class MultiStainCycleGANPipeline(ModelPipeline):
@@ -67,20 +78,18 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         self,
         src_img_path: Path,
         result_path: Path,
-        target_img_path: Path | None = None,
+        target_img_path: Path | Sequence[Path] | None = None,
         metrics: list[str] = [],
         emit_event=None,
     ) -> PipelineResult:
         self._emit_progress(emit_event, 1, "Preparing MultiStain-CycleGAN inference.")
 
         tgt_images = None
-        if "fid" in metrics:
+        if "fid" in metrics or "gaussian_color_dist" in metrics:
             if target_img_path is None:
-                raise ValueError("FID needs target image")
+                raise ValueError("Target-dependent metrics need target image")
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
-            tgt_wsi_handle = open_wsi_handle(target_img_path)
-            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
-            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            tgt_images = load_grid_target_patches(target_img_path, self.grid_sampler)
             self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
@@ -109,15 +118,11 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             total_batches=total_batches,
         )
 
-        writer = MultiZarrWSIWriter(
-            output_path=result_path,
+        writer = self._build_writer(
+            result_path=result_path,
             width=read_w,
             height=read_h,
             level_downsample=level_downsample,
-            channels=3,
-            tile_size=self.config.tile_size,
-            overwrite=True,
-            pyramid_levels=self.config.pyramid_levels,
         )
 
         run_start = time.time()
@@ -125,6 +130,7 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             use_ssim="ssim" in metrics,
             use_psnr="psnr" in metrics,
             use_fid="fid" in metrics,
+            use_gaussian_color_dist="gaussian_color_dist" in metrics,
             target_patch=tgt_images,
         )
         self._emit_progress(emit_event, 10, f"Starting inference on {total_refs} patches.")
@@ -199,6 +205,34 @@ class MultiStainCycleGANPipeline(ModelPipeline):
             raise ValueError("tile_size must be > 0")
         if self.config.pyramid_levels < 0:
             raise ValueError("pyramid_levels must be >= 0")
+        if self.config.blend_margin is not None and self.config.blend_margin < 0:
+            raise ValueError("blend_margin must be >= 0")
+
+    def _build_writer(
+        self,
+        result_path: Path,
+        width: int,
+        height: int,
+        level_downsample: float,
+    ) -> MultiZarrWSIWriter:
+        writer_class = (
+            BlendedMultiZarrWSIWriter
+            if self.config.overlap_blending
+            else MultiZarrWSIWriter
+        )
+        kwargs = {
+            "output_path": result_path,
+            "width": width,
+            "height": height,
+            "level_downsample": level_downsample,
+            "channels": 3,
+            "tile_size": self.config.tile_size,
+            "overwrite": True,
+            "pyramid_levels": self.config.pyramid_levels,
+        }
+        if writer_class is BlendedMultiZarrWSIWriter:
+            kwargs["blend_margin"] = self.config.blend_margin
+        return writer_class(**kwargs)
 
     def _load_model(self) -> ResnetGenerator:
         checkpoint_path = self._resolve_checkpoint_path()
@@ -353,21 +387,57 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         }
 
     def _normalize_batch(self, patches_chw: list[np.ndarray]) -> list[np.ndarray]:
-        batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0
+        source_batch = np.stack(patches_chw, axis=0).astype(np.uint8)
+        batch = source_batch.astype(np.float32) / 255.0
         tensor = torch.from_numpy(batch).to(
             device=self.device,
             dtype=torch.float32,
         )
         tensor = (tensor - 0.5) * 2.0
+        input_h, input_w = tensor.shape[-2:]
+        pad_h = (-input_h) % 4
+        pad_w = (-input_w) % 4
+        if pad_h or pad_w:
+            tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode="replicate")
 
         with torch.inference_mode():
             output = self.model(tensor)
 
+        output = output[..., :input_h, :input_w]
         output = output * 0.5 + 0.5
         output = torch.clamp(output, 0.0, 1.0)
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8)
+        if self.config.preserve_background:
+            output_np = self._preserve_background(source_batch, output_np)
         return [output_np[i] for i in range(output_np.shape[0])]
+
+    def _preserve_background(
+        self,
+        source_batch: np.ndarray,
+        output_batch: np.ndarray,
+    ) -> np.ndarray:
+        source_rgb = source_batch.astype(np.float32) / 255.0
+        max_rgb = source_rgb.max(axis=1)
+        min_rgb = source_rgb.min(axis=1)
+        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
+        tissue_mask = (max_rgb > 0.08) & (max_rgb < 0.92) & (saturation > 0.04)
+
+        if ndi is not None:
+            soft_masks = []
+            for mask in tissue_mask:
+                expanded = ndi.binary_dilation(mask, iterations=8)
+                soft = ndi.gaussian_filter(expanded.astype(np.float32), sigma=3.0)
+                soft_masks.append(np.clip(soft, 0.0, 1.0))
+            alpha = np.stack(soft_masks, axis=0)[:, None, :, :]
+        else:
+            alpha = tissue_mask.astype(np.float32)[:, None, :, :]
+
+        blended = (
+            alpha * output_batch.astype(np.float32)
+            + (1.0 - alpha) * source_batch.astype(np.float32)
+        )
+        return np.rint(blended).clip(0, 255).astype(np.uint8)
 
     def _log_run_summary(
         self,
@@ -389,6 +459,7 @@ class MultiStainCycleGANPipeline(ModelPipeline):
         self._log(f"  batch_size={self.config.batch_size}")
         self._log(f"  tile_size={self.config.tile_size}")
         self._log(f"  pyramid_levels={self.config.pyramid_levels}")
+        self._log(f"  overlap_blending={self.config.overlap_blending}")
         self._log(f"  device={self.device}")
         self._log(f"  compute_ssim={self.config.compute_ssim}")
         self._log(f"  level_dimensions={wsi_handle.level_dimensions}")

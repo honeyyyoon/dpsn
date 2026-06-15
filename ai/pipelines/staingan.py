@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 import logging
 import pickle
 from pathlib import Path
@@ -10,16 +11,23 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+
+try:
+    from scipy import ndimage as ndi
+except ImportError:
+    ndi = None
 
 from ai.metrics.metric import Metric
 from ai.models.staingan.staingan_model import ResnetGenerator
 from ai.pipelines.base import ModelPipeline
 from ai.pipelines.result import PipelineResult
+from ai.pipelines.target_utils import load_grid_target_patches
 from ai.samplers.patch_sampler import PatchSampler
 from ai.samplers.grid_sampler import GridSampler
 from ai.wsi.handle import WSIHandle
 from ai.wsi.loader import load_patch, open_wsi_handle
-from ai.wsi.writer import MultiZarrWSIWriter
+from ai.wsi.writer import BlendedMultiZarrWSIWriter, MultiZarrWSIWriter
 
 
 class StainGANError(RuntimeError):
@@ -78,15 +86,18 @@ class StainGANInferenceConfig:
     generator_direction: str = "source_to_canonical"
 
     patch_size: int = 512
-    stride: int = 512
+    stride: int = 256
     read_level: int = 0
     batch_size: int = 8
     tile_size: int = 512
     pyramid_levels: int = 3
+    overlap_blending: bool = True
+    blend_margin: int | None = None
     device: str = "auto"
     verbose: bool = True
     log_every_batches: int = 5
     compute_ssim: bool = True
+    preserve_background: bool = True
 
 
 class StainGANPipeline(ModelPipeline):
@@ -112,7 +123,7 @@ class StainGANPipeline(ModelPipeline):
         self,
         src_img_path: Path,
         result_path: Path,
-        target_img_path: Path | None = None,
+        target_img_path: Path | Sequence[Path] | None = None,
         metrics: list[str] = [],
         emit_event = None
     ) -> PipelineResult:
@@ -123,9 +134,7 @@ class StainGANPipeline(ModelPipeline):
             if target_img_path is None:
                 raise MissingTargetImageError("FID를 계산하려면 타겟 이미지가 필요합니다.")
             self._emit_progress(emit_event, 3, "Loading target patches for FID.")
-            tgt_wsi_handle = open_wsi_handle(target_img_path)
-            tgt_refs = self.grid_sampler.sample(tgt_wsi_handle)
-            tgt_images = np.stack([load_patch(ref).img for ref in tgt_refs], axis=0)
+            tgt_images = load_grid_target_patches(target_img_path, self.grid_sampler)
             self._emit_progress(emit_event, 6, "Loaded target patches for FID.")
 
         del target_img_path
@@ -155,15 +164,11 @@ class StainGANPipeline(ModelPipeline):
             total_batches=total_batches,
         )
 
-        writer = MultiZarrWSIWriter(
-            output_path=result_path,
+        writer = self._build_writer(
+            result_path=result_path,
             width=read_w,
             height=read_h,
             level_downsample=level_downsample,
-            channels=3,
-            tile_size=self.config.tile_size,
-            overwrite=True,
-            pyramid_levels=self.config.pyramid_levels,
         )
 
         #Metric Calculation
@@ -247,11 +252,39 @@ class StainGANPipeline(ModelPipeline):
             raise ValueError("tile_size는 0보다 커야 합니다.")
         if self.config.pyramid_levels < 0:
             raise ValueError("pyramid_levels must be >= 0")
+        if self.config.blend_margin is not None and self.config.blend_margin < 0:
+            raise ValueError("blend_margin must be >= 0")
         if self.config.generator_direction not in {"source_to_canonical", "a2b", "b2a"}:
             raise ValueError(
                 "generator_direction must be 'source_to_canonical', 'a2b', or 'b2a', "
                 f"got {self.config.generator_direction!r}"
             )
+
+    def _build_writer(
+        self,
+        result_path: Path,
+        width: int,
+        height: int,
+        level_downsample: float,
+    ) -> MultiZarrWSIWriter:
+        writer_class = (
+            BlendedMultiZarrWSIWriter
+            if self.config.overlap_blending
+            else MultiZarrWSIWriter
+        )
+        kwargs = {
+            "output_path": result_path,
+            "width": width,
+            "height": height,
+            "level_downsample": level_downsample,
+            "channels": 3,
+            "tile_size": self.config.tile_size,
+            "overwrite": True,
+            "pyramid_levels": self.config.pyramid_levels,
+        }
+        if writer_class is BlendedMultiZarrWSIWriter:
+            kwargs["blend_margin"] = self.config.blend_margin
+        return writer_class(**kwargs)
         
     # Build the generator and load trained weights into it
     def _load_model(self) -> ResnetGenerator:
@@ -433,21 +466,57 @@ class StainGANPipeline(ModelPipeline):
         This method is intentionally patch-level so future pseudo-pair export can
         call it and save original patches next to their StainGAN-normalized outputs.
         """
-        batch = np.stack(patches_chw, axis=0).astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
+        source_batch = np.stack(patches_chw, axis=0).astype(np.uint8)
+        batch = source_batch.astype(np.float32) / 255.0 # stack patches into one batch, scale to [0,1]
         tensor = torch.from_numpy(batch).to(
             device=self.device,
             dtype=torch.float32,
         ) #convert numpy -> tensor
         tensor = (tensor - 0.5) * 2.0
+        input_h, input_w = tensor.shape[-2:]
+        pad_h = (-input_h) % 4
+        pad_w = (-input_w) % 4
+        if pad_h or pad_w:
+            tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode="replicate")
 
         with torch.inference_mode(): #inference mode only - no tracking gradients
             output = self.model(tensor) #applies trained staingan generator to the batch
 
+        output = output[..., :input_h, :input_w]
         output = output * 0.5 + 0.5 #Convert output from [-1,1] back to [0,1]
         output = torch.clamp(output, 0.0, 1.0) #clamp to valid image range - second check
         output_np = output.detach().cpu().numpy()
         output_np = np.rint(output_np * 255.0).astype(np.uint8) #Convert from [0,1] floats to [0,255] uint8 image values
+        if self.config.preserve_background:
+            output_np = self._preserve_background(source_batch, output_np)
         return [output_np[i] for i in range(output_np.shape[0])] #split back into list of patches
+
+    def _preserve_background(
+        self,
+        source_batch: np.ndarray,
+        output_batch: np.ndarray,
+    ) -> np.ndarray:
+        source_rgb = source_batch.astype(np.float32) / 255.0
+        max_rgb = source_rgb.max(axis=1)
+        min_rgb = source_rgb.min(axis=1)
+        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
+        tissue_mask = (max_rgb > 0.08) & (max_rgb < 0.92) & (saturation > 0.04)
+
+        if ndi is not None:
+            soft_masks = []
+            for mask in tissue_mask:
+                expanded = ndi.binary_dilation(mask, iterations=8)
+                soft = ndi.gaussian_filter(expanded.astype(np.float32), sigma=3.0)
+                soft_masks.append(np.clip(soft, 0.0, 1.0))
+            alpha = np.stack(soft_masks, axis=0)[:, None, :, :]
+        else:
+            alpha = tissue_mask.astype(np.float32)[:, None, :, :]
+
+        blended = (
+            alpha * output_batch.astype(np.float32)
+            + (1.0 - alpha) * source_batch.astype(np.float32)
+        )
+        return np.rint(blended).clip(0, 255).astype(np.uint8)
 
     def _build_output_path(self, src_img_path: Path) -> Path:
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -474,6 +543,7 @@ class StainGANPipeline(ModelPipeline):
         self._log(f"  batch_size={self.config.batch_size}")
         self._log(f"  tile_size={self.config.tile_size}")
         self._log(f"  pyramid_levels={self.config.pyramid_levels}")
+        self._log(f"  overlap_blending={self.config.overlap_blending}")
         self._log(f"  device={self.device}")
         self._log(f"  compute_ssim={self.config.compute_ssim}")
         self._log(f"  level_dimensions={wsi_handle.level_dimensions}")

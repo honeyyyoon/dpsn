@@ -115,12 +115,14 @@ def run_job(job_id: str, model_id: int, image_id: str):
             update_job(job_id, status, progress, f"[{device}] {message}")
 
         src_path = image_store.get_image_path(image_id)
-        tgt_path = image_store.get_target_image_path()
+        tgt_paths = image_store.get_target_image_paths()
+        tgt_path = tgt_paths[0]
         task = Task(
             src_img_path=Path(src_path),
             target_img_path=Path(tgt_path),
             result_path=DATA_DIR / "results",
-            model_id=model_id
+            model_id=model_id,
+            target_img_paths=tuple(Path(path) for path in tgt_paths),
         )
         task_result = Worker().run(task, emit_event=emit_event, device=device)
         update_job(job_id, "running", 99, "Registering result image.")

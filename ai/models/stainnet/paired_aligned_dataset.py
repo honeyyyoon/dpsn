@@ -27,6 +27,9 @@ class PairedAlignedImageDataset(Dataset):
         recursive: bool = True, #whether the dataset loader searches only the top-level folder or also all nested subfolders for images
         source_prefix: str = "A",
         target_prefix: str = "H",
+        quality_filter: bool = True,
+        min_tissue_fraction: float = 0.2,
+        max_black_fraction: float = 0.1,
     ) -> None:
         self.source_dir = Path(source_dir)
         self.target_dir = Path(target_dir)
@@ -34,6 +37,9 @@ class PairedAlignedImageDataset(Dataset):
         self.recursive = bool(recursive)
         self.source_prefix = str(source_prefix)
         self.target_prefix = str(target_prefix)
+        self.quality_filter = bool(quality_filter)
+        self.min_tissue_fraction = float(min_tissue_fraction)
+        self.max_black_fraction = float(max_black_fraction)
 
         if not self.source_dir.is_dir():
             raise FileNotFoundError(f"Source directory not found: {self.source_dir}")
@@ -49,6 +55,10 @@ class PairedAlignedImageDataset(Dataset):
             raise ValueError(
                 f"target_prefix must be a single character, got {self.target_prefix!r}"
             )
+        if not 0.0 <= self.min_tissue_fraction <= 1.0:
+            raise ValueError("min_tissue_fraction must be between 0 and 1.")
+        if not 0.0 <= self.max_black_fraction <= 1.0:
+            raise ValueError("max_black_fraction must be between 0 and 1.")
 
         source_files = self._list_images(self.source_dir)
         target_files = self._list_images(self.target_dir)
@@ -75,9 +85,25 @@ class PairedAlignedImageDataset(Dataset):
                 + "; ".join(details)
             )
 
-        self.filenames = sorted(source_map.keys())
         self.source_map = source_map
         self.target_map = target_map
+        self.filenames = sorted(source_map.keys())
+
+        if self.quality_filter:
+            before_count = len(self.filenames)
+            self.filenames = [
+                filename
+                for filename in self.filenames
+                if self._is_quality_image(self.source_map[filename])
+                and self._is_quality_image(self.target_map[filename])
+            ]
+            removed_count = before_count - len(self.filenames)
+            if removed_count:
+                print(
+                    "[PairedAlignedImageDataset] filtered "
+                    f"{removed_count}/{before_count} low-quality pair(s)",
+                    flush=True,
+                )
 
         if not self.filenames:
             raise ValueError(
@@ -151,3 +177,23 @@ class PairedAlignedImageDataset(Dataset):
         image_np = np.transpose(image_np, (2, 0, 1)) # Change from HWC to CHW
         image_np = (image_np - 0.5) * 2.0 # Normalize from [0,1] to [-1,1], because that's what stainnet expects
         return image_np.astype(np.float32) # return processed image
+
+    def _is_quality_image(self, path: Path) -> bool:
+        image = Image.open(path).convert("RGB")
+        image.thumbnail((self.image_size, self.image_size), Image.BILINEAR)
+        rgb = np.asarray(image, dtype=np.float32) / 255.0
+        max_rgb = rgb.max(axis=2)
+        min_rgb = rgb.min(axis=2)
+        saturation = (max_rgb - min_rgb) / np.maximum(max_rgb, 1e-6)
+        black_fraction = float((max_rgb < 0.06).mean())
+        tissue_fraction = float(
+            (
+                (max_rgb > 0.08)
+                & (max_rgb < 0.95)
+                & (saturation > 0.04)
+            ).mean()
+        )
+        return (
+            tissue_fraction >= self.min_tissue_fraction
+            and black_fraction <= self.max_black_fraction
+        )

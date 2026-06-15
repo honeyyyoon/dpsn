@@ -8,7 +8,7 @@ Example:
 --image-size 256 \
 --target-mpp 0.22 \
 --batch-size 4 \
---epochs 100 \
+--epochs 80 \
 --checkpoint-interval 2 \
 --gpu-ids 1,2,3 \
 --device auto
@@ -154,9 +154,16 @@ def save_checkpoint(
     path: Path,
     epoch: int,
     metrics: dict[str, float],
+    scheduler_g: LambdaLR,
+    scheduler_d: LambdaLR,
+    best_val_g: float,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.checkpoint_state(epoch=epoch, metrics=metrics), path)
+    checkpoint = model.checkpoint_state(epoch=epoch, metrics=metrics)
+    checkpoint["scheduler_g"] = scheduler_g.state_dict()
+    checkpoint["scheduler_d"] = scheduler_d.state_dict()
+    checkpoint["best_val_g"] = best_val_g
+    torch.save(checkpoint, path)
 
 
 def train(config: MultiStainCycleGANConfig) -> Path:
@@ -177,7 +184,53 @@ def train(config: MultiStainCycleGANConfig) -> Path:
     scheduler_d = build_lr_scheduler(model.optimizer_d, config.epochs)
 
     best_val_g = float("inf")
-    for epoch in range(1, config.epochs + 1):
+    start_epoch = 0
+    if config.resume_checkpoint is not None:
+        if not config.resume_checkpoint.is_file():
+            raise FileNotFoundError(
+                f"Resume checkpoint not found: {config.resume_checkpoint}"
+            )
+        checkpoint = model.load_checkpoint(config.resume_checkpoint, load_optimizers=True)
+        start_epoch = int(checkpoint.get("epoch", 0))
+        best_val_g = float(checkpoint.get("best_val_g", best_val_g))
+
+        scheduler_g_state = checkpoint.get("scheduler_g")
+        scheduler_d_state = checkpoint.get("scheduler_d")
+        if isinstance(scheduler_g_state, dict) and isinstance(scheduler_d_state, dict):
+            scheduler_g.load_state_dict(scheduler_g_state)
+            scheduler_d.load_state_dict(scheduler_d_state)
+        else:
+            for optimizer in (model.optimizer_g, model.optimizer_d):
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = config.lr
+            scheduler_g = build_lr_scheduler(model.optimizer_g, config.epochs)
+            scheduler_d = build_lr_scheduler(model.optimizer_d, config.epochs)
+            for _ in range(start_epoch):
+                scheduler_g.step()
+                scheduler_d.step()
+
+        if best_val_g == float("inf") and config.best_checkpoint_path.is_file():
+            best_checkpoint = torch.load(
+                config.best_checkpoint_path,
+                map_location="cpu",
+                weights_only=False,
+            )
+            best_metrics = best_checkpoint.get("metrics", {})
+            best_val_g = float(best_metrics.get("val_g", best_val_g))
+
+        print(
+            f"Resuming from {config.resume_checkpoint} at epoch {start_epoch + 1}/"
+            f"{config.epochs}",
+            flush=True,
+        )
+
+    if start_epoch >= config.epochs:
+        raise ValueError(
+            f"Resume checkpoint is at epoch {start_epoch}, but configured total "
+            f"epochs is {config.epochs}."
+        )
+
+    for epoch in range(start_epoch + 1, config.epochs + 1):
         train_losses = train_one_epoch(
             model=model,
             dataloader=train_loader,
@@ -197,22 +250,6 @@ def train(config: MultiStainCycleGANConfig) -> Path:
         metrics.update({f"val_{k}": v for k, v in val_losses.items()})
         print(format_epoch_summary(epoch, config.epochs, metrics), flush=True)
 
-        if epoch % config.checkpoint_interval == 0:
-            save_checkpoint(
-                model=model,
-                path=config.latest_checkpoint_path,
-                epoch=epoch,
-                metrics=metrics,
-            )
-            checkpoint_path = config.epoch_checkpoint_path(epoch)
-            save_checkpoint(
-                model=model,
-                path=checkpoint_path,
-                epoch=epoch,
-                metrics=metrics,
-            )
-            print(f"Saved checkpoint: {checkpoint_path}", flush=True)
-
         val_g = val_losses.get("g", float("inf"))
         if val_g < best_val_g:
             best_val_g = val_g
@@ -221,12 +258,37 @@ def train(config: MultiStainCycleGANConfig) -> Path:
                 path=config.best_checkpoint_path,
                 epoch=epoch,
                 metrics=metrics,
+                scheduler_g=scheduler_g,
+                scheduler_d=scheduler_d,
+                best_val_g=best_val_g,
             )
             print(
                 f"Updated best checkpoint: {config.best_checkpoint_path} "
                 f"val_g={best_val_g:.6f}",
                 flush=True,
             )
+
+        if epoch % config.checkpoint_interval == 0:
+            save_checkpoint(
+                model=model,
+                path=config.latest_checkpoint_path,
+                epoch=epoch,
+                metrics=metrics,
+                scheduler_g=scheduler_g,
+                scheduler_d=scheduler_d,
+                best_val_g=best_val_g,
+            )
+            checkpoint_path = config.epoch_checkpoint_path(epoch)
+            save_checkpoint(
+                model=model,
+                path=checkpoint_path,
+                epoch=epoch,
+                metrics=metrics,
+                scheduler_g=scheduler_g,
+                scheduler_d=scheduler_d,
+                best_val_g=best_val_g,
+            )
+            print(f"Saved checkpoint: {checkpoint_path}", flush=True)
 
     print(
         f"Finished MultiStain-CycleGAN training. Best checkpoint: {config.best_checkpoint_path}",
@@ -273,6 +335,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoints-dir", type=Path, default=DEFAULT_CHECKPOINTS_DIR)
     parser.add_argument("--patch-cache-dir", type=Path, default=DEFAULT_PATCH_CACHE_DIR)
     parser.add_argument("--experiment-name", type=str, default="multistain_many_to_nz210")
+    parser.add_argument("--resume-checkpoint", type=Path, default=None)
     parser.add_argument("--canonical-domain", type=str, default="nz210")
     parser.add_argument(
         "--source-domains",
@@ -298,7 +361,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--discriminator-layers", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--checkpoint-interval", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.0002)
     parser.add_argument("--beta1", type=float, default=0.5)
@@ -325,6 +388,7 @@ def config_from_args(args: argparse.Namespace) -> MultiStainCycleGANConfig:
         checkpoints_dir=args.checkpoints_dir,
         patch_cache_dir=args.patch_cache_dir,
         experiment_name=args.experiment_name,
+        resume_checkpoint=args.resume_checkpoint,
         canonical_domain=args.canonical_domain,
         source_domains=source_domains,
         image_size=args.image_size,

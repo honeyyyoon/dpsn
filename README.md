@@ -16,24 +16,27 @@ Digital pathology slides vary in color appearance depending on staining reagents
 
 ## Features
 
-- Upload WSI files (`.svs`, `.ndpi`, etc.) and process them immediately
+- Upload WSI files (`.svs`, `.ndpi`, `.tiff`, etc.) and process them immediately
 - Select multiple models simultaneously for parallel comparison
-- Before / After thumbnail visualization
-- Quantitative evaluation via SSIM · PSNR · FID metrics
-- Track processing status per job (`GET /jobs/{job_id}`)
+- Before / After image visualization with side-by-side dashboard
+- Quantitative evaluation via **5 metrics**: SSIM · PSNR · FID · Gaussian Color Distance · Gaussian Color Gain
+- Real-time job progress tracking with GPU device queue
+- Job history persisted in SQLite (survives server restarts)
+- Bulk download of normalized results as ZIP
 
 ---
 
 ## Supported Models
 
-| ID | Model | Type |
-|----|-------|------|
-| 1 | Reinhard | Classical |
-| 2 | Macenko | Classical |
-| 3 | Vahadane | Classical |
-| 4 | StainGAN | Learning-based |
-| 5 | StainNet | Learning-based |
-| 6 | StainSWIN | Learning-based |
+| ID | Model | Type | Description |
+|----|-------|------|-------------|
+| 1 | Reinhard | Classical | Color distribution transfer via statistical matching |
+| 2 | Macenko | Classical | Stain vector estimation and decomposition |
+| 3 | Vahadane | Classical | Structure-preserving stain separation |
+| 4 | StainGAN | Learning-based | CycleGAN-based Image-to-Image translation |
+| 5 | StainNet | Learning-based | Lightweight CNN-based normalization |
+| 6 | StainSWIN | Learning-based | Swin Transformer-based model |
+| 7 | MultiStainCycleGAN | Learning-based | Many-to-one CycleGAN across multiple stain domains (custom) |
 
 The model registry is managed via `config/models.json`.
 
@@ -43,10 +46,20 @@ The model registry is managed via `config/models.json`.
 
 ```
 dpsn/
-  ai/          Normalization pipelines and metrics
-  backend/     FastAPI server
-  frontend/    React + TypeScript UI (Vite)
-  config/      Shared configuration (models.json)
+├── ai/                    AI normalization module
+│   ├── pipelines/         Per-model inference pipelines (base.py interface)
+│   ├── models/            Model definitions and training scripts
+│   ├── metrics/           Image quality metrics (SSIM, PSNR, FID, Gaussian Color Distance)
+│   ├── wsi/               WSI loading, patching, and writing (OpenSlide / tifffile)
+│   ├── samplers/          Patch sampling strategies (grid sampler, tissue masking)
+│   └── runtime/           Worker / Task abstraction
+├── backend/               FastAPI REST API server
+│   ├── routers/           API endpoints (models, jobs, images)
+│   ├── services/          Job runner (ThreadPoolExecutor + GPU queue), image store
+│   └── db.py              SQLite database (WAL mode)
+├── frontend/              React + TypeScript SPA (Vite)
+│   └── src/components/    UI components (Sidebar, ConfigPanel, ResultsViews, etc.)
+└── config/                Shared configuration (models.json)
 ```
 
 ---
@@ -57,79 +70,110 @@ dpsn/
 |-------------|---------|
 | Python | 3.13+ |
 | Node.js | 24+ |
-| Yarn | latest |
-| CUDA | 11.8+ (for GPU inference) |
+| CUDA | 11.8+ (for GPU inference, optional) |
 | OpenSlide | 4.0+ |
 
-> Install OpenSlide: `pip install openslide-python openslide-bin`  
-> Server environment: Ubuntu 22.04 · Intel Xeon Silver 4210 · RTX 2080 Ti × 4 · 128GB RAM
+> **GPU is recommended** for deep learning models but not required.  
+> Classical algorithms (Reinhard, Macenko, Vahadane) run on CPU without issues.  
+> For CPU-only environments, use small input images for reasonable processing time.
 
 ---
 
-## AI
+## Getting Started
 
-```
-ai/
-  pipelines/   Per-model inference pipelines (Reinhard, StainNet implemented)
-  models/      Model definitions and training scripts (StainNet, StainGAN)
-  metrics/     Image quality metrics (SSIM, PSNR, FID)
-  wsi/         WSI loading, patching, and writing
-  samplers/    Patch sampling strategies (GridPatchSampler + OD-based tissue masking)
-  runtime/     Worker / Task abstraction
-```
-
-`Worker` receives a `Task` (source image, target image, model ID), dispatches it to the appropriate pipeline, and returns the normalized image along with quality metrics.
-
----
-
-## Backend
-
-### Installation
+### Backend
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Running
-
-```bash
+# Create virtual environment and install dependencies
+python -m venv backend/venv
 source backend/venv/bin/activate
-PYTHONPATH=. uvicorn backend.main:app --reload --host 0.0.0.0
+pip install -r requirements.txt
+
+# Run the server
+PYTHONPATH=. uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### API Endpoints
+Data directory defaults to `/mnt/Disk1/dpsn_data`. Override with:
+
+```bash
+export DPSN_DATA_DIR=/path/to/your/data
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+By default the frontend connects to `http://10.10.40.182:8000`. Override with:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+### Model Checkpoints
+
+Deep learning models require pre-trained checkpoints placed in `ai/checkpoints/`:
+
+```
+ai/checkpoints/
+├── staingan/     staingan_aperio_to_hamamatsu_latest.pth
+├── stainnet/     stainnet_aperio_to_hamamatsu_latest.pth
+└── stainswin/    stainswin_aperio_to_hamamatsu_latest.pth
+```
+
+> Checkpoints are not included in this repository due to file size.  
+> Classical algorithms (Reinhard, Macenko, Vahadane) work without checkpoints.
+
+---
+
+## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/models` | List all registered models |
 | `GET` | `/models/{model_id}` | Get details of a specific model |
-| `POST` | `/jobs` | Create a normalization job (WSI upload + model selection) |
-| `GET` | `/jobs/{job_id}` | Poll job status |
-| `GET` | `/jobs/{job_id}/results` | Retrieve results and metrics |
+| `POST` | `/jobs` | Create normalization jobs (WSI upload + model selection) |
+| `POST` | `/jobs/add` | Add models to an existing job group |
+| `GET` | `/jobs` | List all job groups |
+| `GET` | `/jobs/{job_id}` | Poll job status (`pending` / `running` / `done` / `failed`) |
+| `GET` | `/jobs/{job_id}/results` | Retrieve result image ID and metrics |
+| `DELETE` | `/jobs/{job_id}` | Cancel or delete a job |
+| `GET` | `/images/{image_id}` | Serve stored image file |
+| `GET` | `/images/target` | Serve target reference image |
 
-> `POST /jobs` request format: `multipart/form-data` — `image` file + `model_ids` (comma-separated string)  
+> `POST /jobs`: `multipart/form-data` — `image` file + `model_ids` (comma-separated).  
 > When multiple models are selected, a separate job is created per model.
 
 ---
 
-## Frontend
+## Architecture
 
-### Installation & Dev Server
-
-```bash
-cd frontend
-yarn
-yarn dev
+```
+Frontend (React)  ⟷  FastAPI  ⟷  Job Runner  ⟷  Worker  ⟷  Pipeline
+                                     │                         ├── Patch Sampler
+                                   SQLite                      └── Metric
 ```
 
-### Build
+- **Job Runner**: Manages job lifecycle with `ThreadPoolExecutor`. GPU device queue distributes jobs across available GPUs (cuda:1, cuda:2, cuda:3).
+- **Worker**: Receives a `Task`, dispatches it to the appropriate pipeline via `PIPELINE_MAP`, returns `TaskResult` with normalized image and metrics.
+- **Pipeline**: Each model implements `base.py` interface. Calls Patch Sampler for preprocessing and Metric for evaluation during processing.
 
-```bash
-yarn build
-```
+---
+
+## Metrics
+
+| Metric | Target | Description |
+|--------|--------|-------------|
+| SSIM | ≥ 0.90 | Structural Similarity Index Measure |
+| PSNR | ≥ 22 dB | Peak Signal-to-Noise Ratio |
+| FID | ≤ 20 | Fréchet Inception Distance |
+| Gaussian Color Distance | ≤ 0.50 | GMM-based color distribution distance (custom) |
+| Gaussian Color Gain | < 0 | Relative improvement in color distance after normalization (custom) |
+
+Gaussian Color Distance and Gaussian Color Gain are custom metrics developed for this project, using HSV color space with GMM (k=3) to measure color distribution similarity between images.
 
 ---
 
@@ -137,14 +181,12 @@ yarn build
 
 | Name | Role |
 |------|------|
-| Shiheon Yoon | Model serving API (FastAPI), AI runtime integration, frontend (UI, job submission, results visualization) |
-| Yebin Pyun | AI model training & optimization, inference pipeline implementation |
-| Jiseong Lee | WSI & metrics modules, classical algorithm optimization, classification-based evaluation metrics |
+| Shiheon Yoon | Model Serving API, AI Runtime, Frontend, system integration |
+| Yebin Pyun | AI model training, inference pipelines, Patch Sampler |
+| Jiseong Lee | WSI & metrics modules, classical algorithms, Gaussian Color Distance metric |
 
 ---
 
 ## References
 
-Hoque, M. Z., Keskinarkaus, A., Nyberg, P., & Seppänen, T. (2024).  
-*Stain normalization methods for histopathology image analysis: A comprehensive review.*  
-Information Fusion. https://doi.org/10.1016/j.inffus.2024.102198
+- Hoque, M. Z., Keskinarkaus, A., Nyberg, P., & Seppänen, T. (2024). *Stain normalization methods for histopathology image analysis: A comprehensive review.* Information Fusion. https://doi.org/10.1016/j.inffus.2024.102198

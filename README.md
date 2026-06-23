@@ -68,7 +68,7 @@ dpsn/
 
 | Requirement | Version |
 |-------------|---------|
-| Python | 3.13+ |
+| Python | 3.10+ |
 | Node.js | 24+ |
 | CUDA | 11.8+ (for GPU inference, optional) |
 | OpenSlide | 4.0+ |
@@ -87,7 +87,9 @@ dpsn/
 # Create virtual environment and install dependencies
 python -m venv backend/venv
 source backend/venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # local (includes torch)
+# or
+pip install -r requirements-server.txt  # server (torch installed separately)
 
 # Run the server
 PYTHONPATH=. uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
@@ -171,7 +173,7 @@ Frontend (React)  ⟷  FastAPI  ⟷  Job Runner  ⟷  Worker  ⟷  Pipeline
 | PSNR | ≥ 22 dB | Peak Signal-to-Noise Ratio |
 | FID | ≤ 20 | Fréchet Inception Distance |
 | Gaussian Color Distance | ≤ 0.50 | GMM-based color distribution distance (custom) |
-| Gaussian Color Gain | < 0 | Relative improvement in color distance after normalization (custom) |
+| Gaussian Color Gain | > 0 | Relative improvement in color distance after normalization (custom) |
 
 Gaussian Color Distance and Gaussian Color Gain are custom metrics developed for this project, using HSV color space with GMM (k=3) to measure color distribution similarity between images.
 
